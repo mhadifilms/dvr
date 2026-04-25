@@ -6,6 +6,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-25
+
+First stable release. The 0.x line was driven by integration feedback;
+1.0.0 graduates the API after end-to-end production validation against
+real Resolve Studio 20.3 build + render workflows.
+
+The public surface is stable from here. Breaking changes ship with a
+deprecation cycle and a major version bump. New features land as
+minors; bug fixes as patches.
+
+### Stable surface
+
+- `Resolve` — connection, app/page control, project / timeline / render
+  / storage namespaces, context manager.
+- `Project` — settings, save/close, media pool accessor, timeline
+  namespace, gallery, typed `settings` proxy.
+- `ProjectNamespace` — current, list, ensure, load, create, archive,
+  import/export, `use(...)` context manager.
+- `Timeline` — tracks, items, markers, settings, `duplicate`,
+  `find_clip`, `find_clips`, `find_gaps`, `create_compound_from_clips`,
+  `delete_clips`, `create_subtitles_from_audio`, `detect_scene_cuts`,
+  `inspect`.
+- `Track`, `TrackList`, `TrackCollection` — typed accessors with
+  `find` / `find_all` / `add` / `delete`.
+- `TimelineItem` — properties, marker add, `replace`, `source_range`,
+  `is_compound`, `set_property(raise_on_failure=...)`, color / fusion /
+  takes accessors, color/fusion cache control.
+- `MarkerCollection` — dict-like + `add` / `remove` / `remove_color` /
+  `find` / `where`.
+- `Clip` (media-pool item) — properties, metadata, flags, color,
+  markers, mark in/out, proxy, `replace`, `transcribe`,
+  `set_property(raise_on_failure=...)`.
+- `Folder` — clips, subfolders, `walk`, `all_clips`, `find_clip(s)`,
+  `add_subfolder`, `rename`, `delete`, `move`, `transcribe`, `export`.
+- `MediaPool` — root, current folder, ensure / add / find folder,
+  `walk`, `find_clip(s)`, `delete_clips`, `delete_folders`,
+  `delete_timelines`, `import_media`, `import_to`, `import_timeline`,
+  `create_empty_timeline`, `create_timeline_from_clips`,
+  `append_to_timeline`, `auto_sync_audio`, `import_with_subclips`,
+  `create_subclip`.
+- `MediaStorage` — volumes, subfolders, files, reveal, add to pool.
+- `RenderJob` — id, status, percent, progress, eta, output_path,
+  `cancel`, `wait` (with stall + timeout), `poll` / `inspect`.
+- `RenderNamespace` — formats / codecs / presets, queue / clear /
+  stop, `submit`, `submit_per_clip`, `render_single_clip`, `watch`,
+  `is_rendering`. Tolerates `None` returns from headless Resolve and
+  raises a clear error if invoked while a render is already in flight.
+- CLI — `dvr inspect | ping | page | project | timeline | clip | media |
+  render | diff | snapshot | schema | serve | mcp | apply | lint |
+  script | completion | plugin`. Plugin protocol via the
+  `dvr.plugins` entry-point group plus a user manifest at
+  `~/.config/dvr/plugins.toml`.
+- Daemon (`dvr serve`) and MCP server (`dvr mcp`) for long-lived
+  process and LLM-tool integrations.
+- Errors — typed hierarchy under `dvr.errors`, every error carries
+  `cause` / `fix` / `state` for actionable failure modes.
+
+### Validation
+
+End-to-end exercised against Resolve Studio 20.3.2 macOS:
+
+- HDR project setup with full color-management config (P3-D65 / PQ /
+  1000 nits), 17 settings applied successfully.
+- Stitched timeline build of a 1882-shot Sheet, 497 V2 clips placed,
+  letterbox crop, audio stems, full verify report.
+- H.265 full-timeline render via the built-in `H.265 Master` preset
+  → 13.45 GB MOV in 38 minutes.
+
 ## [0.5.1] - 2026-04-25
 
 Hotfix for two real-world failure modes surfaced during a build +
