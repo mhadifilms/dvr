@@ -1,0 +1,12 @@
+/* Subtle accent on inline code so it pops against the body text. */
+.md-typeset code {
+  background-color: rgba(127, 127, 127, 0.12);
+  border-radius: 0.2rem;
+  padding: 0.05rem 0.3rem;
+}
+
+/* Tighter table density. */
+.md-typeset table:not([class]) td,
+.md-typeset table:not([class]) th {
+  padding: 0.5rem 0.75rem;
+}
