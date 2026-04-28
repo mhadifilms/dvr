@@ -39,6 +39,15 @@ logger = logging.getLogger("dvr.spec")
 # Color presets for the most common HDR / SDR project setups.
 # ---------------------------------------------------------------------------
 
+# DaVinci YRGB Color Managed v2 presets — fully API-settable end to end.
+# ACES presets below set color science mode + AP1 working space; their
+# Input/Output Transforms (IDT/ODT) must be selected in the Resolve UI
+# because Resolve's API rejects HDR PQ IDT/ODT strings (every documented
+# format we've tried — UI labels like ``P3-D65 ST2084 (4000 nits)``,
+# ACES 1.x ``InvRRTODT.Academy.*``, ACES 2.0 ``InvOutput.Academy.*``,
+# and Resolve's internal binary names — is silently rejected by
+# ``Project.SetSetting``). Set IDT/ODT in Project Settings → Color
+# Management after applying these presets.
 COLOR_PRESETS: dict[str, dict[str, str]] = {
     "rec2020_pq_4000": {
         "colorScienceMode": "davinciYRGBColorManagedv2",
@@ -80,11 +89,49 @@ COLOR_PRESETS: dict[str, dict[str, str]] = {
         "colorSpaceOutputGamma": "Gamma 2.4",
         "hdrMasteringOn": "0",
     },
+    # --- ACES presets -----------------------------------------------------
+    # Color science = ACEScct (AP1 log working space, AP1 primaries shared
+    # with ACEScg). Set IDT/ODT in the UI after applying — see comment above.
+    "aces_p3d65_pq_4000": {
+        "colorScienceMode": "acescct",
+        "colorAcesNodeLUTProcessingSpace": "acesccAp1",
+        "colorAcesGamutCompressType": "None",
+        # Hint settings — used by some Resolve versions to size HDR UI
+        # without affecting the ACES pipeline itself.
+        "timelineWorkingLuminanceMode": "HDR 4000",
+        "hdrMasteringLuminanceMax": "4000",
+    },
+    "aces_p3d65_pq_1000": {
+        "colorScienceMode": "acescct",
+        "colorAcesNodeLUTProcessingSpace": "acesccAp1",
+        "colorAcesGamutCompressType": "None",
+        "timelineWorkingLuminanceMode": "HDR 1000",
+        "hdrMasteringLuminanceMax": "1000",
+    },
+    "aces_rec2020_pq_4000": {
+        "colorScienceMode": "acescct",
+        "colorAcesNodeLUTProcessingSpace": "acesccAp1",
+        "colorAcesGamutCompressType": "None",
+        "timelineWorkingLuminanceMode": "HDR 4000",
+        "hdrMasteringLuminanceMax": "4000",
+    },
+    "aces_rec2020_pq_1000": {
+        "colorScienceMode": "acescct",
+        "colorAcesNodeLUTProcessingSpace": "acesccAp1",
+        "colorAcesGamutCompressType": "None",
+        "timelineWorkingLuminanceMode": "HDR 1000",
+        "hdrMasteringLuminanceMax": "1000",
+    },
+    "aces_rec709": {
+        "colorScienceMode": "acescct",
+        "colorAcesNodeLUTProcessingSpace": "acesccAp1",
+        "colorAcesGamutCompressType": "None",
+    },
 }
 
 
-# Order matters for HDR / DaVinci Color Managed modes — the first key
-# enables the color management framework before the rest take effect.
+# Order matters for HDR / DaVinci Color Managed / ACES modes — the first
+# key enables the color management framework before the rest take effect.
 SETTINGS_ORDER: tuple[str, ...] = (
     "colorScienceMode",
     "isAutoColorManage",
@@ -95,6 +142,12 @@ SETTINGS_ORDER: tuple[str, ...] = (
     "colorSpaceTimelineGamma",
     "colorSpaceOutput",
     "colorSpaceOutputGamma",
+    # ACES-specific (no-op when colorScienceMode is YRGB)
+    "colorAcesNodeLUTProcessingSpace",
+    "colorAcesGamutCompressType",
+    "colorAcesIDT",
+    "colorAcesODT",
+    # HDR / DRT
     "timelineWorkingLuminanceMode",
     "hdrMasteringLuminanceMax",
     "hdrMasteringOn",

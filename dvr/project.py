@@ -57,6 +57,27 @@ class Project:
         ok = self._raw.SetSetting(key, str(value))
         if not ok:
             current = self._raw.GetSetting(key)
+            # Special-case the well-known ACES IDT/ODT rejection: every
+            # documented HDR PQ string format is silently dropped by
+            # SetSetting, so point the caller at the UI workaround instead
+            # of the generic "wrong type" hint.
+            if key in ("colorAcesIDT", "colorAcesODT") and _looks_like_hdr_pq_aces(str(value)):
+                raise errors.SettingsError(
+                    f"Resolve rejected ACES transform {value!r} for {key!r}.",
+                    cause=(
+                        "Resolve's Project.SetSetting API does not accept HDR PQ "
+                        "ACES IDT/ODT names in any documented format (UI labels, "
+                        "ACES 1.x InvRRTODT.Academy.*, ACES 2.0 InvOutput.Academy.*, "
+                        "or internal names). This is an API gap, not an invalid value."
+                    ),
+                    fix=(
+                        "Open Project Settings → Color Management on the Resolve "
+                        "machine and pick the IDT/ODT from the dropdown. "
+                        "Alternatively use ``project.set_preset(name)`` after "
+                        "saving a project preset with the desired ACES transforms."
+                    ),
+                    state={"key": key, "value": value, "current": current},
+                )
             raise errors.SettingsError(
                 f"Could not set project setting {key!r} to {value!r}.",
                 cause=(
@@ -69,6 +90,73 @@ class Project:
                     "or check Resolve's API docs for the expected type."
                 ),
                 state={"key": key, "value": value, "current": current},
+            )
+
+    # --- ACES convenience -------------------------------------------------
+
+    def set_aces_idt(self, value: str) -> None:
+        """Set the project-default ACES Input Device Transform.
+
+        Wraps ``set_setting("colorAcesIDT", value)`` with a clearer error
+        path for the HDR PQ rejection case (see :meth:`set_setting`).
+        Basic IDT names like ``"No Input Transform"``, ``"Rec.2020"``,
+        ``"P3-D65"``, ``"P3-D60"``, ``"DCDM"`` are accepted by Resolve's
+        API; HDR PQ variants must be set via the UI or
+        :meth:`set_preset`.
+        """
+        self.set_setting("colorAcesIDT", value)
+
+    def set_aces_odt(self, value: str) -> None:
+        """Set the project-default ACES Output Device Transform.
+
+        Same caveats as :meth:`set_aces_idt`.
+        """
+        self.set_setting("colorAcesODT", value)
+
+    # --- presets ----------------------------------------------------------
+
+    def presets(self) -> list[dict[str, Any]]:
+        """Return the project-level preset list (from ``GetPresetList``).
+
+        Each entry is a dict like
+        ``{"Name": "MyPreset", "Width": 3840, "Height": 2160}``.
+        """
+        return [dict(p) for p in (self._raw.GetPresetList() or [])]
+
+    def set_preset(self, name: str) -> None:
+        """Apply a project preset (saved configuration of project settings).
+
+        Useful as a workaround for settings that ``SetSetting`` cannot apply
+        directly (notably HDR PQ ACES IDT/ODT): create the preset once in
+        the Resolve UI with the desired transforms, then reuse it from
+        scripts via this method. Raises :class:`ProjectError` on failure.
+        """
+        if not self._raw.SetPreset(name):
+            raise errors.ProjectError(
+                f"Could not apply project preset {name!r}.",
+                cause="SetPreset returned False.",
+                fix=(
+                    "Check available presets via ``project.presets()``. "
+                    "Presets are saved in Project Settings → Presets."
+                ),
+                state={"requested": name, "available": [p["Name"] for p in self.presets()]},
+            )
+
+    def save_as_preset(self, name: str) -> None:
+        """Save the current project settings as a named project preset."""
+        if not self._raw.SaveAsNewRenderPreset(name):
+            # Fall through to SetPreset semantics — Resolve's SaveAsNewRenderPreset
+            # is for render presets; project-level "save as preset" has no
+            # public API. Raise so callers don't silently lose work.
+            raise errors.ProjectError(
+                f"Could not save project preset {name!r} via the API.",
+                cause=(
+                    "Resolve's scripting API exposes preset application "
+                    "(SetPreset) but not project-preset creation. Save the "
+                    "preset once in the UI; afterwards it can be applied "
+                    "from scripts via project.set_preset(name)."
+                ),
+                state={"requested": name},
             )
 
     # --- save / close -----------------------------------------------------
@@ -227,14 +315,40 @@ class ProjectNamespace:
             return Project(current, self._manager)
         raw = self._manager.LoadProject(name)
         if raw is None:
+            folder_listing = self.list()
+            current_name = current.GetName() if current is not None else None
+            # Distinguish "project doesn't exist" from "project exists but
+            # Resolve won't load it" — usually because another project is
+            # currently open with unsaved state, which blocks the swap.
+            if name in folder_listing:
+                raise errors.ProjectError(
+                    f"Resolve refused to load existing project {name!r}.",
+                    cause=(
+                        "LoadProject returned None even though the project is "
+                        "in this PM folder. Most commonly: the currently open "
+                        f"project ({current_name!r}) has unsaved changes, which "
+                        "blocks switching to another project."
+                    ),
+                    fix=(
+                        "Save or close the currently open project (in the UI, or "
+                        "via `resolve.project.current.save()` / `.close()`), then "
+                        "try again. If the project is on DaVinci Cloud, also "
+                        "confirm cloud sync isn't paused."
+                    ),
+                    state={
+                        "name": name,
+                        "current_project": current_name,
+                        "folder_listing": folder_listing,
+                    },
+                )
             raise errors.ProjectError(
                 f"Could not load project {name!r}.",
-                cause="LoadProject returned None — the project may not exist in this PM folder.",
+                cause="LoadProject returned None — the project does not exist in this PM folder.",
                 fix=(
-                    "Check available projects with `resolve.project.list()`, or navigate "
-                    "into the right PM folder first."
+                    "Check available projects with `resolve.project.list()`, or "
+                    "navigate into the right PM folder first."
                 ),
-                state={"name": name, "folder_listing": self.list()},
+                state={"name": name, "folder_listing": folder_listing},
             )
         return Project(raw, self._manager)
 
@@ -321,6 +435,24 @@ def _guess_drp_name(path: str) -> str:
     from pathlib import Path
 
     return Path(path).stem
+
+
+def _looks_like_hdr_pq_aces(value: str) -> bool:
+    """Heuristic: does ``value`` look like an HDR PQ ACES transform name?
+
+    Used to give a clearer error when ``Project.SetSetting`` rejects an
+    HDR PQ IDT/ODT (see :meth:`Project.set_setting`). Matches:
+
+    * UI labels — ``"P3-D65 ST2084 (4000 nits)"``, ``"Rec.2020 ST2084 (1000 nits)"``
+    * ACES 1.x AMF — ``"InvRRTODT.Academy.P3D65_4000nits_15nits_ST2084.a1.1.0"``
+    * ACES 2.0 AMF — ``"InvOutput.Academy.P3-D65_4000nit_in_P3-D65_ST2084.a2.v1"``
+    """
+    v = value.lower()
+    if "st2084" in v or "st.2084" in v or "_pq" in v or " pq" in v:
+        return True
+    if "nit" in v and ("p3" in v or "rec.2020" in v or "rec2020" in v):
+        return True
+    return v.startswith(("invrrtodt.", "rrtodt.", "invoutput.academy.", "output.academy."))
 
 
 # ---------------------------------------------------------------------------

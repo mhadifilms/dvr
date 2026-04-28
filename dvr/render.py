@@ -495,6 +495,69 @@ class RenderNamespace:
 
         return jobs
 
+    def submit_and_wait(
+        self,
+        *,
+        target_dir: str,
+        custom_name: str | None = None,
+        preset: str | None = None,
+        format: str | None = None,
+        codec: str | None = None,
+        settings: dict[str, Any] | None = None,
+        poll_interval: float = 1.0,
+        timeout: float | None = None,
+        stall_seconds: float = _DEFAULT_STALL_SECONDS,
+    ) -> str:
+        """Submit a render of the current timeline, block until done, return its output path.
+
+        Combines :meth:`submit` (with ``start=True``) and
+        :meth:`RenderJob.wait`. Used as a one-liner from build scripts that
+        produce a single artifact per Resolve session::
+
+            output = r.render.submit_and_wait(
+                target_dir="/Volumes/Out",
+                custom_name="hero_v007",
+                format="mov",
+                codec="ProRes4444XQ",
+            )
+
+        Args:
+            target_dir, custom_name, preset, format, codec, settings:
+                See :meth:`submit`.
+            poll_interval, timeout, stall_seconds:
+                See :meth:`RenderJob.wait`.
+
+        Returns:
+            The absolute path to the rendered file as reported by
+            Resolve's ``OutputFilename`` job property.
+
+        Raises:
+            RenderError / RenderJobError: on submit failure or render
+                failure / cancel / stall / timeout.
+        """
+        job = self.submit(
+            target_dir=target_dir,
+            custom_name=custom_name,
+            preset=preset,
+            format=format,
+            codec=codec,
+            settings=settings,
+            start=True,
+        )
+        job.wait(poll_interval=poll_interval, timeout=timeout, stall_seconds=stall_seconds)
+        path = job.output_path
+        if not path:
+            raise errors.RenderError(
+                f"Render job {job.id} reported complete but has no output path.",
+                cause=(
+                    "OutputFilename was empty in the queue entry — Resolve sometimes "
+                    "drops the job from GetRenderJobList immediately after completion."
+                ),
+                fix="Use `submit()` + `RenderJob.wait()` and capture the path before it's evicted.",
+                state={"job_id": job.id, "target_dir": target_dir},
+            )
+        return path
+
     def render_single_clip(
         self,
         item: TimelineItem,

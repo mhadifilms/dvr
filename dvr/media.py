@@ -27,7 +27,9 @@ A *folder* is the bin in the media pool. Older releases called it
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable, Iterable, Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` shadow
 
 from . import errors
@@ -743,6 +745,60 @@ class MediaPool:
             )
         return [Clip(it) for it in result]
 
+    def import_imf(
+        self,
+        imf_dir: str,
+        *,
+        folder: Folder | None = None,
+    ) -> list[Clip]:
+        """Import an IMF (Interoperable Master Format) package into the pool.
+
+        Pass the path to the IMF *folder* (the OV folder containing
+        ``ASSETMAP.xml``, ``CPL_*.xml``, ``PKL_*.xml``, and the ``.mxf``
+        essence files) — not the CPL XML itself. Resolve's
+        ``MediaPool.ImportMedia([cpl_path])`` returns empty for IMFs;
+        ``MediaStorage.AddItemListToMediaPool([imf_dir])`` is the working
+        path and is what this method uses.
+
+        Each MXF in the package is imported as a separate Media Pool clip
+        (picture, 5.1 audio, 2.0 audio, etc.). The CPL/PKL/ASSETMAP/OPL
+        XMLs are recognized and skipped automatically by Resolve.
+        """
+        from pathlib import Path
+
+        imf_path = Path(imf_dir)
+        if not imf_path.is_dir():
+            raise errors.MediaImportError(
+                f"IMF path {imf_dir!r} is not a directory.",
+                fix="Pass the IMF OV folder, not the CPL XML or an MXF file.",
+                state={"path": imf_dir},
+            )
+        if not any(imf_path.glob("CPL_*.xml")):
+            raise errors.MediaImportError(
+                f"No CPL_*.xml found under {imf_dir!r}; this does not look like an IMF.",
+                fix="Confirm the path points at an IMP (Interoperable Master Package) folder.",
+                state={"path": imf_dir},
+            )
+        if folder is not None:
+            self.set_current_folder(folder)
+        storage_raw = (
+            self._resolve.GetMediaStorage() if hasattr(self._resolve, "GetMediaStorage") else None
+        )
+        if storage_raw is None:
+            raise errors.MediaImportError(
+                "Could not access MediaStorage for IMF import.",
+                fix="Ensure a project is loaded before calling import_imf().",
+            )
+        result = storage_raw.AddItemListToMediaPool([str(imf_path)])
+        if not result:
+            raise errors.MediaImportError(
+                f"IMF import returned no items for {imf_dir!r}.",
+                cause="AddItemListToMediaPool returned an empty list.",
+                fix="Check that the IMF essence files are readable and intact.",
+                state={"path": imf_dir},
+            )
+        return [Clip(it) for it in result]
+
     # Legacy aliases.
     def import_(
         self,
@@ -802,6 +858,61 @@ class MediaPool:
                         previous.name,
                         exc,
                     )
+
+    def find_or_import(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        folder: Folder | str | None = None,
+    ) -> Clip:
+        """Return the existing :class:`Clip` for ``path``, importing if absent.
+
+        Walks the entire pool looking for a clip whose ``file_path`` matches
+        the requested path (after :func:`os.path.normpath` /
+        :func:`os.path.normcase`). If no match is found, imports it via
+        :meth:`import_media` (or :meth:`import_to` when ``folder`` is given)
+        and returns the freshly imported clip.
+
+        This is the right primitive when a script repeatedly references the
+        same source file — for example, batch-extracting many shots out of a
+        single master render. Without it, every call to
+        :meth:`import_media` adds a duplicate Media Pool entry for the same
+        path, which slows down the project and clutters the bin tree.
+
+        Args:
+            path:   Source path on disk. May be ``str`` or ``Path``.
+            folder: Optional bin to import *into* if the clip isn't already
+                    in the pool. Accepts a :class:`Folder` or a folder name
+                    (auto-created under the root). Has no effect when the
+                    clip is found via lookup — already-pooled clips stay
+                    where they are.
+
+        Returns:
+            A :class:`Clip` for the requested path.
+
+        Raises:
+            MediaImportError: if the path is not in the pool and Resolve
+                refuses to import it.
+        """
+        target = _normalise_path(path)
+        for f in self.walk():
+            for c in f.clips:
+                cp = c.file_path
+                if cp and _normalise_path(cp) == target:
+                    return c
+        # Not in the pool — import. Defer to import_to when a folder is
+        # specified so the previous current-folder selection is restored.
+        if folder is None:
+            results = self.import_media([str(path)])
+        else:
+            results = self.import_to(folder, [str(path)])
+        if not results:
+            raise errors.MediaImportError(
+                f"find_or_import: import returned no clips for {path!r}.",
+                cause="ImportMedia produced an empty list — path may be unreadable.",
+                state={"path": str(path)},
+            )
+        return results[0]
 
     def import_timeline(
         self,
@@ -1086,6 +1197,17 @@ class MediaPool:
             "root": root.inspect(),
             "selected_count": len(self.selected()),
         }
+
+
+def _normalise_path(p: str | os.PathLike[str]) -> str:
+    """Normalize ``p`` for cross-platform equality comparison.
+
+    Applies :func:`os.path.normpath` (collapses ``.``/``..`` segments) and
+    :func:`os.path.normcase` (lower-cases on Windows, no-op on POSIX). Used
+    by :meth:`MediaPool.find_or_import` to dedup against the pool's
+    Resolve-reported ``File Path`` strings.
+    """
+    return os.path.normcase(os.path.normpath(str(Path(p))))
 
 
 __all__ = [

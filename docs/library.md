@@ -97,6 +97,26 @@ print(job.output_path)
 # Or stream events:
 for event in r.render.watch([job.id]):
     print(event)
+
+# One-shot: submit, block, return the rendered path.
+output = r.render.submit_and_wait(
+    target_dir="/Volumes/out",
+    custom_name="MyShow_207_R2",
+    format="mov",
+    codec="ProRes4444XQ",
+)
+```
+
+## Media imports
+
+```python
+# Idempotent: returns the existing pool clip if the path is already
+# imported, otherwise imports it. Useful when many shots come from one
+# master and you don't want a duplicate Media Pool entry per shot.
+clip = project.media.find_or_import("/Volumes/raw/master_v003.mov")
+
+# IMF (Interoperable Master Format) — pass the OV folder, not the CPL.
+clips = project.media.import_imf("/Volumes/deliveries/MyShow_IMF/")
 ```
 
 ## Interchange

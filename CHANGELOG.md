@@ -6,6 +6,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-28
+
+Additive release driven by build-pipeline ergonomics and ACES support.
+No breaking changes — every new method has a backwards-compatible
+default. The IMF and ACES additions are the headline; the two
+single-call helpers (``find_or_import``, ``submit_and_wait``) drop the
+boilerplate that every long-running build script ends up reinventing.
+
+### Added — ACES color management
+
+- `dvr.spec.COLOR_PRESETS` — five new ACES presets:
+  `aces_p3d65_pq_4000`, `aces_p3d65_pq_1000`, `aces_rec2020_pq_4000`,
+  `aces_rec2020_pq_1000`, `aces_rec709`. Each sets color science to
+  `acescct` with AP1 working space; HDR variants also bump
+  `timelineWorkingLuminanceMode` and `hdrMasteringLuminanceMax` so the
+  HDR UI sizes correctly. ACES IDT/ODT must still be picked in the
+  Resolve UI — see below.
+- `dvr.spec.SETTINGS_ORDER` — appended ACES keys
+  (`colorAcesNodeLUTProcessingSpace`, `colorAcesGamutCompressType`,
+  `colorAcesIDT`, `colorAcesODT`) so `spec.apply` writes them after
+  `colorScienceMode` flips on.
+- `Project.set_aces_idt(value)` and `Project.set_aces_odt(value)` —
+  thin wrappers over `set_setting("colorAcesIDT", ...)` /
+  `set_setting("colorAcesODT", ...)` with a clearer error path.
+- `Project.set_setting` — now special-cases the well-known HDR PQ
+  IDT/ODT rejection. When Resolve refuses an HDR PQ value (every
+  documented format — UI labels, ACES 1.x AMF names, ACES 2.0 AMF
+  names, internal binary names — is silently dropped by the API),
+  raise a `SettingsError` that points at the working UI / preset
+  workaround instead of the generic "wrong type" hint.
+- `Project.presets()`, `Project.set_preset(name)`,
+  `Project.save_as_preset(name)` — wrappers around `GetPresetList`,
+  `SetPreset`, and `SaveAsNewRenderPreset`. The intended workflow for
+  HDR PQ ACES projects: save a preset once in the Resolve UI with the
+  desired IDT/ODT, then call `project.set_preset(name)` from scripts.
+
+### Added — IMF (Interoperable Master Format) ingest
+
+- `MediaPool.import_imf(imf_dir, *, folder=None)` — imports an IMF OV
+  package into the pool. Pass the IMF *folder* (containing
+  `ASSETMAP.xml`, `CPL_*.xml`, `PKL_*.xml`, and the `.mxf` essence
+  files), not the CPL XML itself. Resolve's
+  `MediaPool.ImportMedia([cpl_path])` returns empty for IMFs;
+  `MediaStorage.AddItemListToMediaPool([imf_dir])` is the working path
+  and is what this method drives. Each MXF is imported as a separate
+  pool clip; CPL/PKL/ASSETMAP/OPL XMLs are recognized and skipped by
+  Resolve.
+- `import_imf` validates that the path is a directory and that at
+  least one `CPL_*.xml` exists before calling Resolve, so a typo
+  surfaces as a `MediaImportError` with `fix=` guidance instead of an
+  opaque empty-list return.
+
+### Added — build-script ergonomics
+
+- `MediaPool.find_or_import(path, *, folder=None) -> Clip` — the
+  primitive that batch scripts kept reinventing. Walks the pool for a
+  clip whose `file_path` matches the requested path (after
+  `os.path.normpath` / `os.path.normcase`); imports via `import_media`
+  / `import_to` only if absent. Without it, every call to
+  `import_media` adds a duplicate Media Pool entry for the same path,
+  which slows projects that cut many shots out of one master.
+- `RenderNamespace.submit_and_wait(*, target_dir, custom_name=..., ...)`
+  — submit + wait one-shot. Returns the absolute output path
+  (`OutputFilename`). Equivalent to `r.render.submit(...).wait()` plus
+  the post-completion path lookup, with a clear error if Resolve
+  evicts the job from the queue before the path can be read.
+
+### Improved
+
+- `ProjectNamespace.load(name)` — when `LoadProject` returns `None`,
+  distinguish "project doesn't exist in this PM folder" from "project
+  exists but Resolve refused to swap to it" (typically because another
+  project has unsaved changes). The "refused to swap" error now names
+  the currently-open project and tells the caller to save/close it
+  first.
+
 ## [1.0.0] - 2026-04-25
 
 First stable release. The 0.x line was driven by integration feedback;
