@@ -15,6 +15,6 @@ serialization.
 
 from __future__ import annotations
 
-from .server import build_server, run_stdio
+from .server import build_server, list_tool_specs, list_tools_metadata, run_stdio
 
-__all__ = ["build_server", "run_stdio"]
+__all__ = ["build_server", "list_tool_specs", "list_tools_metadata", "run_stdio"]
