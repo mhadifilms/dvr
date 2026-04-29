@@ -22,7 +22,7 @@ For LLM agents, one structured read is cheaper than many small ones — both in 
 
 ```json
 {
-  "name": "MyShow_207_R2",
+  "name": "Edit_v2",
   "fps": 24.0,
   "duration_frames": 86400,
   "start_timecode": "01:00:00:00",

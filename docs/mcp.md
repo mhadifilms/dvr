@@ -54,7 +54,7 @@ When a tool fails, the response carries the structured `DvrError`:
     "message": "No timeline is currently loaded.",
     "cause": "GetCurrentTimeline returned None.",
     "fix": "Switch or create a timeline first.",
-    "state": {"project": "MyShow_207"}
+    "state": {"project": "MyShow"}
   }
 }
 ```

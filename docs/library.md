@@ -27,7 +27,7 @@ r.storage       # filesystem-side: volumes, file lists, bulk import
 Within a project:
 
 ```python
-project = r.project.ensure("MyShow_207")
+project = r.project.ensure("MyShow")
 project.timeline           # same as r.timeline once project is current
 project.media              # MediaPool
 project.gallery            # stills, PowerGrades
@@ -62,8 +62,8 @@ clip.replace("/Volumes/new_source.mov")        # relink, preserves grades
 ## Idempotent context managers
 
 ```python
-with r.project.use("MyShow_207") as project:
-    with project.timeline.use("ROUND_2") as tl:
+with r.project.use("MyShow") as project:
+    with project.timeline.use("Edit_v2") as tl:
         # ...
         pass
 # previous project + timeline restored on exit
@@ -87,7 +87,7 @@ v2_long = tl.clips("video").where(lambda c: c.track_index == 2 and c.duration > 
 ```python
 job = r.render.submit(
     target_dir="/Volumes/out",
-    custom_name="MyShow_207_R2",
+    custom_name="MyShow_v2",
     format="mov",
     codec="ProRes4444XQ",
 )
@@ -101,7 +101,7 @@ for event in r.render.watch([job.id]):
 # One-shot: submit, block, return the rendered path.
 output = r.render.submit_and_wait(
     target_dir="/Volumes/out",
-    custom_name="MyShow_207_R2",
+    custom_name="MyShow_v2",
     format="mov",
     codec="ProRes4444XQ",
 )
@@ -116,7 +116,7 @@ output = r.render.submit_and_wait(
 clip = project.media.find_or_import("/Volumes/raw/master_v003.mov")
 
 # IMF (Interoperable Master Format) — pass the OV folder, not the CPL.
-clips = project.media.import_imf("/Volumes/deliveries/MyShow_IMF/")
+clips = project.media.import_imf("/Volumes/deliveries/IMF_OV/")
 ```
 
 ## Interchange

@@ -516,16 +516,21 @@ class RenderNamespace:
 
             output = r.render.submit_and_wait(
                 target_dir="/Volumes/Out",
-                custom_name="hero_v007",
+                custom_name="delivery_master",
                 format="mov",
                 codec="ProRes4444XQ",
             )
 
         Args:
-            target_dir, custom_name, preset, format, codec, settings:
-                See :meth:`submit`.
-            poll_interval, timeout, stall_seconds:
-                See :meth:`RenderJob.wait`.
+            target_dir:    See :meth:`submit`.
+            custom_name:   See :meth:`submit`.
+            preset:        See :meth:`submit`.
+            format:        See :meth:`submit`.
+            codec:         See :meth:`submit`.
+            settings:      See :meth:`submit`.
+            poll_interval: See :meth:`RenderJob.wait`.
+            timeout:       See :meth:`RenderJob.wait`.
+            stall_seconds: See :meth:`RenderJob.wait`.
 
         Returns:
             The absolute path to the rendered file as reported by

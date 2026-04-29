@@ -18,7 +18,7 @@ Declarative. Scriptable. LLM-friendly. No more silent `None` returns.
 ```bash
 $ dvr timeline inspect
 {
-  "name": "MyShow_207_R2",
+  "name": "Edit_v2",
   "fps": 24.0,
   "duration_frames": 86400,
   "tracks": {
@@ -50,7 +50,7 @@ DaVinci Resolve has a powerful Python scripting API. It's also painful:
 
     r = Resolve()  # auto-connects, handles macOS LAN-IP quirk
 
-    with r.project.use("MyShow_207"):
+    with r.project.use("MyShow"):
         tl = r.timeline.current
         print(tl.inspect())                      # one call, full state
 
@@ -65,12 +65,12 @@ DaVinci Resolve has a powerful Python scripting API. It's also painful:
 
 === "CLI"
     ```bash
-    dvr project ensure MyShow_207
+    dvr project ensure MyShow
     dvr timeline inspect | jq '.tracks.video[].clips'
     dvr render submit --target-dir /Volumes/out --preset delivery --wait --stream
     # newline-delimited JSON status events:
     # {"job_id": "abc", "status": "rendering", "pct": 12, "eta_s": 240}
-    # {"job_id": "abc", "status": "complete", "output_path": "/Volumes/out/MyShow_207.mov"}
+    # {"job_id": "abc", "status": "complete", "output_path": "/Volumes/out/MyShow.mov"}
     ```
 
 === "MCP (LLM agents)"
@@ -97,7 +97,7 @@ DaVinci Resolve has a powerful Python scripting API. It's also painful:
 
 ## Status
 
-Pre-1.0. The public API may change. See the [CHANGELOG](https://github.com/mhadifilms/dvr/blob/main/CHANGELOG.md) for breaking changes.
+Stable from 1.0. Breaking changes ship with a deprecation cycle and a major version bump; new features land as minor releases. See the [CHANGELOG](https://github.com/mhadifilms/dvr/blob/main/CHANGELOG.md).
 
 ## License
 

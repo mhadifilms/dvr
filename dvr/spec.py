@@ -10,12 +10,12 @@ Spec schema (informal)
 
 ::
 
-    project: MyShow_207
+    project: MyShow
     color_preset: rec2020_pq_4000              # optional
     settings:                                  # optional, raw key/value
       timelineFrameRate: "24"
     timelines:
-      - name: ROUND_2
+      - name: Edit_v2
         fps: 24
         markers:                               # optional
           - {frame: 0, color: Blue, name: HEAD}
@@ -269,7 +269,7 @@ class Action:
     """A single change the engine will (or did) apply."""
 
     op: str  # "create" | "update" | "noop" | "set"
-    target: str  # e.g. "project:MyShow_207"
+    target: str  # e.g. "project:MyShow"
     detail: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
 

@@ -5,8 +5,8 @@ Operations like "create a project" or "create a timeline" should be safe to repe
 `dvr` exposes `ensure()` methods that follow get-or-create semantics:
 
 ```python
-project = r.project.ensure("MyShow_207")          # creates if missing, loads if present
-timeline = project.timeline.ensure("ROUND_2")     # same
+project = r.project.ensure("MyShow")              # creates if missing, loads if present
+timeline = project.timeline.ensure("Edit_v2")     # same
 bin_obj = project.media.ensure_bin("VFX")         # same
 ```
 
@@ -17,8 +17,8 @@ Re-running any script that uses `ensure()` is always safe. There are no "already
 For temporarily switching state, use the `use()` context managers:
 
 ```python
-with r.project.use("MyShow_207") as project:
-    with project.timeline.use("ROUND_2") as tl:
+with r.project.use("MyShow") as project:
+    with project.timeline.use("Edit_v2") as tl:
         # ... work in this project / timeline ...
         pass
 # previous project + timeline restored on exit

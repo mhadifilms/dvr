@@ -10,10 +10,10 @@ working.
 
 ```yaml
 # project.dvr.yaml
-project: MyShow_207
+project: MyShow
 color_preset: rec2020_pq_4000
 timelines:
-  - name: ROUND_1
+  - name: Edit_v1
     fps: 24
     markers:
       - {frame: 0, color: Blue, name: HEAD}
@@ -26,13 +26,33 @@ dvr apply project.dvr.yaml
 The project, timeline, color science, and head marker are reconciled in
 one command. Re-running is a no-op if the live state already matches.
 
+### Bootstrap an ACES project
+
+```yaml
+# project.dvr.yaml
+project: MyShow
+color_preset: aces_rec2020_pq_1000
+timelines:
+  - name: Edit_v1
+    fps: 24
+```
+
+```bash
+dvr apply project.dvr.yaml
+```
+
+The preset sets color science to `acescct` with the AP1 working space.
+ACES IDT/ODT must be picked in Resolve's UI (the API silently ignores
+HDR PQ ODT names); save a render preset once you've configured them, then
+recall it from scripts with `project.set_preset(name)`.
+
 ### Switch to an existing project for one operation
 
 ```python
 from dvr import Resolve
 
 r = Resolve()
-with r.project.use("MyShow_207"):
+with r.project.use("MyShow"):
     print(r.timeline.current.inspect())
 # previous project is restored on exit
 ```
@@ -72,7 +92,7 @@ dvr diff snapshot last-week
 ### Compare two timelines side by side
 
 ```bash
-dvr diff timelines ROUND_1 ROUND_2 --format yaml | less
+dvr diff timelines Edit_v1 Edit_v2 --format yaml | less
 ```
 
 ---
@@ -105,6 +125,25 @@ JOB=$(dvr render submit --target-dir /Volumes/out --no-wait | jq -r .job_id)
 dvr render status "$JOB"
 ```
 
+### Submit, block, get the rendered path back
+
+```python
+from dvr import Resolve
+
+r = Resolve()
+output = r.render.submit_and_wait(
+    target_dir="/Volumes/out",
+    custom_name="delivery_master",
+    format="mov",
+    codec="ProRes4444XQ",
+)
+print(output)  # /Volumes/out/delivery_master.mov
+```
+
+One call covers `submit(start=True)`, `wait()`, and the post-completion
+path lookup, with a clear error if Resolve evicts the job from the queue
+before the path can be read.
+
 ### Stream render events to a webhook (e.g., Slack)
 
 ```bash
@@ -127,6 +166,32 @@ done
 dvr media mkbin Plates
 dvr media import --bin Plates /Volumes/work/plates/*.mov
 ```
+
+### Import a file once, even if the script runs many times
+
+```python
+from dvr import Resolve
+
+r = Resolve()
+clip = r.project.current.media.find_or_import("/Volumes/raw/master.mov")
+```
+
+`find_or_import` walks the pool for a clip whose path matches and only
+imports if it's missing. Useful when many shots come out of the same
+master and you don't want a duplicate Media Pool entry per call.
+
+### Import an IMF (Interoperable Master Format) package
+
+```python
+from dvr import Resolve
+
+r = Resolve()
+clips = r.project.current.media.import_imf("/Volumes/deliveries/IMF_OV/")
+```
+
+Pass the IMF *folder* (the one containing `ASSETMAP.xml`, `CPL_*.xml`,
+`PKL_*.xml`, and the `.mxf` essence files) — not the CPL XML. Each MXF
+becomes its own pool clip; the XML manifests are recognized and skipped.
 
 ### Relink an entire bin to new locations
 
@@ -158,7 +223,7 @@ for clip in r.timeline.current.clips("video").where(lambda c: c.track_index == 2
 ### Export a 33-point cube LUT from the current grade
 
 ```python
-clip.color.export_lut("/Volumes/luts/myshow_207_grade.cube", size=33)
+clip.color.export_lut("/Volumes/luts/master_grade.cube", size=33)
 ```
 
 ### Stabilize every shot in a single command
@@ -238,7 +303,7 @@ dvr repl
 dvr serve start
 dvr timeline list                 # ~50ms
 dvr timeline inspect              # ~50ms
-dvr timeline switch ROUND_2       # ~50ms
+dvr timeline switch Edit_v2       # ~50ms
 dvr serve stop
 ```
 

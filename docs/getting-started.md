@@ -80,7 +80,7 @@ dvr project list
 Create a project (idempotent — safe to re-run):
 
 ```bash
-dvr project ensure MyShow_207
+dvr project ensure MyShow
 ```
 
 Get a structured snapshot of the current timeline:

@@ -199,7 +199,7 @@ class Project:
         """Timeline namespace — current, list, ensure, switch, ``use()`` context manager.
 
         Also iterable: ``for tl in project.timeline: ...``. Index/name
-        lookup: ``project.timeline["ROUND_2"]``, ``project.timeline[0]``.
+        lookup: ``project.timeline["Edit_v2"]``, ``project.timeline[0]``.
         """
         from .timeline import TimelineNamespace
 

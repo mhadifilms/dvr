@@ -17,7 +17,7 @@ pip install dvr
 ```bash
 $ dvr timeline inspect
 {
-  "name": "MyShow_207_R2",
+  "name": "Edit_v2",
   "fps": 24.0,
   "duration_frames": 86400,
   "tracks": {
@@ -53,7 +53,7 @@ from dvr import Resolve
 
 r = Resolve()  # auto-connects, handles macOS LAN-IP quirk
 
-with r.project.use("MyShow_207"):
+with r.project.use("MyShow"):
     tl = r.timeline.current
     print(tl.inspect())                      # one call, full state
 
@@ -70,7 +70,7 @@ with r.project.use("MyShow_207"):
 ### 2. CLI
 
 ```bash
-$ dvr project ensure MyShow_207 --color rec2020_pq_4000 --fps 24
+$ dvr project ensure MyShow --color rec2020_pq_4000 --fps 24
 $ dvr timeline inspect | jq '.tracks.video[].clips'
 $ dvr render submit --preset delivery --wait --stream
 {"job_id": "abc", "status": "rendering", "pct": 12, "eta_s": 240}
@@ -141,7 +141,7 @@ brew install mhadifilms/tap/dvr
 
 ## Status
 
-Pre-1.0. The public API may change. See [CHANGELOG.md](CHANGELOG.md) for breaking changes.
+Stable from 1.0. Breaking changes ship with a deprecation cycle and a major version bump; new features land as minor releases. See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
