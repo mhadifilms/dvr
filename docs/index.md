@@ -1,5 +1,9 @@
 # dvr
 
+<p align="center">
+  <img src="assets/logo.png" alt="dvr logo" width="160">
+</p>
+
 **The missing CLI and Python library for DaVinci Resolve.**
 Declarative. Scriptable. LLM-friendly. No more silent `None` returns.
 

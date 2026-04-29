@@ -6,6 +6,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-04-29
+
+Patch release focused on MCP reliability and agent-safe editorial primitives.
+No breaking changes.
+
+### Added — MCP server
+
+- `dvr[mcp]` extras install path and `dvr mcp serve` stdio server are now
+  documented as the recommended integration for Claude, Cursor, and other
+  MCP-compatible clients.
+- Bundled MCP branding assets are exposed through the `version` and `doctor`
+  tool responses as `brand.logo` and `brand.icon`.
+- `dvr mcp tools` introspects every exposed MCP tool, including full JSON
+  schemas with `--detail`.
+- `dvr mcp install`, `dvr mcp install-claude`, `dvr mcp install-cursor`, and
+  `dvr mcp install-claude-code` register the MCP server with safe defaults
+  (`--no-launch --timeout 5`) while preserving existing client config.
+- New typed MCP tools:
+  - `version`, `doctor`, and `reconnect` for setup and diagnostics.
+  - `media_scan` for filesystem media discovery without Resolve.
+  - `media_bin_ensure` and `media_move` for reusable media-pool organization.
+  - `timeline_append` for track-targeted timeline placement without `eval`.
+  - `marker_add`, `clip_where`, `render_clear`, and `apply_spec`.
+
+### Improved
+
+- The documentation site and README now use the project logo, including
+  favicon, Apple touch icon, and web-manifest assets for browsers.
+- MCP errors now return proper `CallToolResult(isError=True)` responses while
+  preserving structured `DvrError` payloads (`type`, `message`, `cause`,
+  `fix`, `state`).
+- MCP `doctor` is fast by default and only attempts a live Resolve connection
+  when `probe=true`.
+- MCP connection failures are cached briefly so repeated failed tool calls do
+  not hammer Resolve's `fusionscript` bridge or accumulate stuck timeout
+  threads.
+- `eval` remains available as an explicit escape hatch, but is disabled unless
+  `DVR_MCP_ENABLE_EVAL=1` is set.
+
+### Fixed
+
+- Resolve 21 beta compatibility: `App.product` now uses `GetProductName()`
+  first and falls back to older `GetProduct()` builds.
+- MCP startup and live-tool failure paths now fail fast enough for Claude and
+  Cursor tool-call timeouts instead of appearing to hang.
+
 ## [1.1.0] - 2026-04-28
 
 Additive release driven by build-pipeline ergonomics and ACES support.

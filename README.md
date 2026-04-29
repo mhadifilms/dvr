@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mhadifilms/dvr/main/docs/assets/logo.png" alt="dvr logo" width="140">
+</p>
+
 # dvr
 
 [![PyPI version](https://img.shields.io/pypi/v/dvr?color=blue)](https://pypi.org/project/dvr/)
@@ -81,10 +85,13 @@ $ dvr render submit --preset delivery --wait --stream
 ### 3. MCP server (for LLM agents)
 
 ```bash
-$ dvr mcp serve              # exposes the library as MCP tools
+$ pip install "dvr[mcp]"
+$ dvr mcp install-claude     # one-shot Claude Desktop setup
+$ dvr mcp serve              # or run the server yourself
+$ dvr mcp tools              # introspect the 39+ typed tools
 ```
 
-LLM agents call typed tools directly — no shell parsing, no silent failures.
+LLM agents call typed tools directly — no shell parsing, no silent failures. Tools that don't need a live Resolve (`version`, `doctor`, static `schema` topics) work even when Resolve isn't running, so first-time setup is instant. See [docs/mcp.md](docs/mcp.md).
 
 ## Five things that make it fundamentally better than the raw API
 

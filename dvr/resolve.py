@@ -137,7 +137,13 @@ class App:
     @property
     def product(self) -> str:
         """``DaVinci Resolve`` or ``DaVinci Resolve Studio``."""
-        return self._raw.GetProduct()
+        for method_name in ("GetProductName", "GetProduct"):
+            method = getattr(self._raw, method_name, None)
+            if callable(method):
+                value = method()
+                if value:
+                    return str(value)
+        return "DaVinci Resolve"
 
     def quit(self) -> None:
         """Quit DaVinci Resolve gracefully."""
