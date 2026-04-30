@@ -86,6 +86,8 @@ def test_lint_counts_track_item_count_not_only_clip_count() -> None:
 
 
 def test_mcp_registry_exposes_cleanup_and_settings_tools() -> None:
+    pytest.importorskip("mcp")
+
     from dvr.mcp.server import _build_registry
 
     names = {tool.name for tool in _build_registry()}
@@ -129,6 +131,8 @@ class _Media:
 
 
 def test_find_bin_path_accepts_slash_paths() -> None:
+    pytest.importorskip("mcp")
+
     from dvr.mcp.server import _find_bin_path
 
     media = _Media()
@@ -137,6 +141,8 @@ def test_find_bin_path_accepts_slash_paths() -> None:
 
 
 def test_timeline_append_errors_on_partial_append() -> None:
+    pytest.importorskip("mcp")
+
     from dvr.mcp.server import _Context, _h_timeline_append
 
     class _Clip:
@@ -204,6 +210,8 @@ def test_timeline_append_errors_on_partial_append() -> None:
 
 
 def test_timeline_append_requires_record_frame_for_non_default_tracks() -> None:
+    pytest.importorskip("mcp")
+
     from dvr.mcp.server import _Context, _h_timeline_append
 
     class _Timeline:
