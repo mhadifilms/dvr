@@ -92,6 +92,38 @@ class Project:
                 state={"key": key, "value": value, "current": current},
             )
 
+    @contextmanager
+    def setting_context(self, key: str, value: Any) -> Iterator[Any]:
+        """Set a project setting for the duration of the ``with`` block.
+
+        Captures the previous value with :meth:`get_setting`, applies
+        ``value`` via :meth:`set_setting`, and restores the previous
+        value in ``finally`` — even if the block raises. Useful for
+        scoped flips around a single render or operation::
+
+            with project.setting_context("colorAcesODT", "Rec.709 BT.1886"):
+                r.render.submit_and_wait(...)
+
+        The yielded value is the original (pre-flip) setting, so callers
+        that need it for logging or conditional logic don't have to read
+        it again. Restoration failures are logged at WARNING level rather
+        than masking exceptions raised inside the block.
+        """
+        previous = self.get_setting(key)
+        self.set_setting(key, value)
+        try:
+            yield previous
+        finally:
+            try:
+                self.set_setting(key, previous)
+            except errors.DvrError as exc:
+                logger.warning(
+                    "could not restore project setting %r=%r: %s",
+                    key,
+                    previous,
+                    exc,
+                )
+
     # --- ACES convenience -------------------------------------------------
 
     def set_aces_idt(self, value: str) -> None:

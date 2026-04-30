@@ -511,10 +511,7 @@ def _h_render_submit(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _h_render_status(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
-    from ..render import RenderJob
-
-    job = RenderJob(ctx.resolve().render, args["job_id"])
-    return job.inspect()
+    return ctx.resolve().render.status(args["job_id"])
 
 
 def _h_render_stop(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:

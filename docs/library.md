@@ -67,6 +67,11 @@ with r.project.use("MyShow") as project:
         # ...
         pass
 # previous project + timeline restored on exit
+
+# Scoped project setting flips — restored on exit, even on exception.
+with project.setting_context("colorAcesODT", "Rec.709 BT.1886"):
+    r.render.submit_and_wait(...)
+# previous colorAcesODT value restored
 ```
 
 ## Querying
@@ -105,6 +110,14 @@ output = r.render.submit_and_wait(
     format="mov",
     codec="ProRes4444XQ",
 )
+
+# Normalized status snapshot — same payload as RenderJob.poll().
+snap = r.render.status(job.id)
+print(snap["status"], snap["percent"], snap["error"])
+
+# Safe between shots — bounded queue cleanup with timeout, even after
+# image-sequence (EXR / DPX) jobs leave the queue stuck at 100%.
+r.render.clear()
 ```
 
 ## Media imports

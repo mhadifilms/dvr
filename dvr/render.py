@@ -30,6 +30,9 @@ logger = logging.getLogger("dvr.render")
 # Sentinel for "no progress in N seconds → stalled".
 _DEFAULT_STALL_SECONDS = 300.0
 
+# Default budget for :meth:`RenderNamespace.clear` per-job deletion fallback.
+_DEFAULT_CLEAR_TIMEOUT_SECONDS = 10.0
+
 
 class RenderJob:
     """A single job in Resolve's render queue."""
@@ -150,6 +153,12 @@ class RenderJob:
                     f"Render job {self._job_id} was cancelled.",
                     state={"job_id": self._job_id},
                 )
+            # Image-sequence renders (EXR / DPX) sometimes never flip
+            # ``JobStatus`` to ``Complete`` — the queue lingers at 100% with
+            # ``IsRenderingInProgress`` already False. Treat that pair as
+            # a successful terminal state instead of stalling forever.
+            if pct >= 100.0 and not self._ns.is_rendering():
+                return self
 
             if pct > last_pct:
                 last_pct = pct
@@ -278,13 +287,102 @@ class RenderNamespace:
         return list(self._project_raw.GetRenderJobList() or [])
 
     def is_rendering(self) -> bool:
+        """True iff Resolve reports an in-flight render.
+
+        Thin wrapper over ``Project.IsRenderingInProgress`` — exposed so
+        callers don't have to reach through to ``project.raw`` for what
+        is otherwise a one-liner.
+        """
         return bool(self._project_raw.IsRenderingInProgress())
 
     def stop(self) -> None:
         self._project_raw.StopRendering()
 
-    def clear(self) -> None:
+    def status(self, job_id: str) -> dict[str, Any]:
+        """Return a normalized status snapshot for ``job_id``.
+
+        Equivalent to ``RenderJob(ns, job_id).poll()`` but exposed at the
+        namespace level so toolkit code (``r.render.status(jid)``)
+        doesn't have to construct its own :class:`RenderJob` just to read
+        the queue. The payload is::
+
+            {"id", "status", "percent", "progress", "eta_seconds",
+             "output_path", "error", "is_finished"}
+
+        ``error`` is ``None`` for successful / in-progress jobs.
+        """
+        return RenderJob(self, job_id).poll()
+
+    def clear(
+        self,
+        *,
+        timeout: float = _DEFAULT_CLEAR_TIMEOUT_SECONDS,
+        poll_interval: float = 0.5,
+    ) -> None:
+        """Delete every job in the render queue, with bounded patience.
+
+        Resolve's ``DeleteAllRenderJobs`` is silently dropped on some
+        builds when the queue still contains a freshly-finished
+        image-sequence (EXR / DPX) job. To make it safe for toolkits to
+        call ``r.render.clear()`` between shots, this method:
+
+        * Returns immediately if the queue is already empty.
+        * Refuses to clear while a render is in progress (raises
+          :class:`RenderError` with the live queue size — the caller
+          should wait or call :meth:`stop` first).
+        * Issues ``DeleteAllRenderJobs`` once, then falls back to
+          per-job ``DeleteRenderJob`` calls until the queue empties.
+        * Bounds the whole loop with ``timeout`` (seconds). If queue
+          deletion stalls past that, raises :class:`RenderError` listing
+          the remaining job IDs rather than blocking forever.
+        """
+        if not self.queue():
+            return
+        if self.is_rendering():
+            raise errors.RenderError(
+                "Cannot clear the render queue while a render is in progress.",
+                cause="IsRenderingInProgress() returned True.",
+                fix=(
+                    "Wait for the current render (use `dvr render watch`) "
+                    "or call `r.render.stop()` first."
+                ),
+                state={"queue_size": len(self.queue())},
+            )
+
+        # Bulk delete first — fastest path, and the only call documented
+        # by Resolve. Some builds drop it silently after EXR sequences,
+        # so verify by reading the queue back.
         self._project_raw.DeleteAllRenderJobs()
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = self.queue()
+            if not remaining:
+                return
+            for job in remaining:
+                jid = job.get("JobId")
+                if jid:
+                    self._project_raw.DeleteRenderJob(jid)
+            if not self.queue():
+                return
+            if time.monotonic() > deadline:
+                still = self.queue()
+                raise errors.RenderError(
+                    f"Render queue clear timed out after {timeout:.1f}s "
+                    f"with {len(still)} job(s) remaining.",
+                    cause=(
+                        "Resolve silently refused DeleteAllRenderJobs and "
+                        "DeleteRenderJob even though no render is in progress. "
+                        "Common after image-sequence (EXR / DPX) renders leave "
+                        "the queue in a stuck state."
+                    ),
+                    fix=(
+                        "Restart Resolve, or remove the stuck jobs manually "
+                        "from the Deliver-page queue."
+                    ),
+                    state={"remaining_job_ids": [j.get("JobId") for j in still]},
+                )
+            time.sleep(poll_interval)
 
     # --- submit -----------------------------------------------------------
 
@@ -609,6 +707,13 @@ class RenderNamespace:
             {"type": "progress", "job_id": "...", "percent": 47, "eta_s": 180}
             {"type": "complete", "job_id": "...", "output_path": "..."}
             {"type": "failed",   "job_id": "...", "error": "..."}
+
+        Image-sequence renders (EXR / DPX) sometimes never flip
+        ``JobStatus`` from ``Rendering`` to ``Complete``. To avoid
+        spinning forever, when a job reports ``CompletionPercentage >=
+        100`` and ``Project.IsRenderingInProgress()`` is False, this
+        generator emits a synthetic ``complete`` event for it and moves
+        on. Failure / cancel paths are unchanged.
         """
         targets = job_ids or [j["JobId"] for j in self.queue()]
         finished: set[str] = set()
@@ -619,6 +724,7 @@ class RenderNamespace:
                     continue
                 s = self._project_raw.GetRenderJobStatus(jid) or {}
                 status = s.get("JobStatus", "Unknown")
+                pct = float(s.get("CompletionPercentage", 0))
                 if status == "Complete":
                     finished.add(jid)
                     yield {
@@ -634,12 +740,23 @@ class RenderNamespace:
                         "job_id": jid,
                         "error": s.get("Error"),
                     }
+                elif pct >= 100.0 and not self.is_rendering():
+                    # Resolve never emitted ``Complete`` but everything
+                    # else says we're done — treat as complete.
+                    finished.add(jid)
+                    yield {
+                        "type": "complete",
+                        "job_id": jid,
+                        "output_path": RenderJob(self, jid).output_path,
+                        "time_s": float(s.get("TimeTakenToRenderInMs", 0)) / 1000.0,
+                        "synthetic": True,
+                    }
                 else:
                     yield {
                         "type": "progress",
                         "job_id": jid,
                         "status": status,
-                        "percent": float(s.get("CompletionPercentage", 0)),
+                        "percent": pct,
                         "eta_s": (
                             float(s["EstimatedTimeRemainingInMs"]) / 1000.0
                             if "EstimatedTimeRemainingInMs" in s

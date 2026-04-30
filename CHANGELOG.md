@@ -6,6 +6,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-04-29
+
+Patch release focused on render-queue reliability for image-sequence
+(EXR / DPX) deliveries and scoped project-setting ergonomics. No
+breaking changes.
+
+### Added
+
+- `Project.setting_context(key, value)` — context manager that flips a
+  project setting for the duration of a `with` block and restores the
+  previous value on exit (including on exceptions). Prevents settings
+  leaks in toolkits that need to flip ACES ODT, frame rate, or other
+  scoped values around a single render.
+- `RenderNamespace.status(job_id)` — namespace-level normalized status
+  snapshot (`{id, status, percent, progress, eta_seconds, output_path,
+  error, is_finished}`). Toolkits no longer need to construct their own
+  `RenderJob` to read the queue. The MCP `render_status` tool now
+  delegates to this method.
+
+### Fixed
+
+- `RenderNamespace.watch()` — now terminates cleanly for image-sequence
+  (EXR / DPX) renders that reach `CompletionPercentage == 100` but
+  whose `JobStatus` never flips to `Complete`. When the percentage is
+  at 100 and `Project.IsRenderingInProgress()` is False, `watch()`
+  emits a synthetic `complete` event (tagged `synthetic: True`) and
+  stops polling. Failure / cancel paths are unchanged.
+- `RenderJob.wait()` — same image-sequence stuck-at-100 fallback;
+  returns cleanly instead of stalling until the stall-seconds budget
+  expires.
+- `RenderNamespace.clear()` — bounded cleanup. Refuses to clear while a
+  render is in progress (raises `RenderError`), tries
+  `DeleteAllRenderJobs` first, then falls back to per-job
+  `DeleteRenderJob` calls until the queue empties or the timeout
+  (default 10 s) elapses. On timeout, raises a structured `RenderError`
+  listing the stuck job IDs instead of blocking forever — toolkits can
+  now safely call `r.render.clear()` between shots.
+
 ## [1.1.1] - 2026-04-29
 
 Patch release focused on MCP reliability and agent-safe editorial primitives.
