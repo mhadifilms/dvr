@@ -293,7 +293,7 @@ def _make_project_with_settings_storage(initial: dict[str, str]) -> tuple[Projec
         {
             "GetName": "S",
             "GetSetting": lambda key=None: storage.get(key, ""),
-            "SetSetting": lambda key, value: (storage.__setitem__(key, value) or True),
+            "SetSetting": lambda key, value: storage.__setitem__(key, value) or True,
         },
     )
     manager = MockNode("PM", {"SaveProject": True})
