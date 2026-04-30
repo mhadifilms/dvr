@@ -5,7 +5,7 @@ DaVinci Resolve through typed schemas instead of shell commands.
 
 Run with::
 
-    pip install "dvr[mcp]"
+    pip install dvr
     dvr mcp serve
 
 The server uses stdio transport by default — clients spawn it as a

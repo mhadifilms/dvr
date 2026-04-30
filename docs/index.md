@@ -79,7 +79,7 @@ DaVinci Resolve has a powerful Python scripting API. It's also painful:
 
 === "MCP (LLM agents)"
     ```bash
-    pip install "dvr[mcp]"
+    pip install dvr
     dvr mcp serve
     ```
 

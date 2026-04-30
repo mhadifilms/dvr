@@ -9,8 +9,9 @@
 
 === "PyPI"
     ```bash
-    pip install dvr                  # or `pipx install dvr`, or `uv tool install dvr`
-    pip install "dvr[mcp]"           # plus the MCP server for LLM agents
+    pip install dvr                  # includes CLI, Python library, and MCP server
+    # or: pipx install dvr
+    # or: uv tool install dvr
     ```
 
 === "From source"

@@ -29,7 +29,7 @@ def serve(ctx: typer.Context) -> None:
         from ...mcp import run_stdio
     except ImportError as exc:
         typer.echo(
-            'MCP support requires the optional extra: pip install "dvr[mcp]"',
+            "MCP support dependency is missing. Reinstall with `pip install dvr`.",
             err=True,
         )
         raise typer.Exit(1) from exc
@@ -62,7 +62,7 @@ def tools(
         from ...mcp import list_tools_metadata
     except ImportError as exc:
         typer.echo(
-            'MCP support requires the optional extra: pip install "dvr[mcp]"',
+            "MCP support dependency is missing. Reinstall with `pip install dvr`.",
             err=True,
         )
         raise typer.Exit(1) from exc

@@ -5,7 +5,7 @@ The Model Context Protocol server exposes `dvr` as typed tools for LLM agents â€
 ## Install
 
 ```bash
-pip install "dvr[mcp]"
+pip install dvr
 ```
 
 The server uses **stdio transport** by default â€” clients spawn `dvr mcp serve` as a subprocess and speak MCP over stdin/stdout.

@@ -45,7 +45,7 @@ try:
     from mcp.types import CallToolResult, TextContent, Tool
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
-        'The MCP server requires the optional `mcp` extra. Install with `pip install "dvr[mcp]"`.'
+        "The MCP server requires the `mcp` package. Reinstall with `pip install dvr`."
     ) from exc
 
 logger = logging.getLogger("dvr.mcp")

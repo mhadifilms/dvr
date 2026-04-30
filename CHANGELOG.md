@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- MCP support is now included in the default install. `pip install dvr` is
+  enough to run `dvr mcp serve`; the old MCP install extra has been removed.
+
 ## [1.1.3] - 2026-04-29
 
 Patch release focused on MCP workflow reliability for agent-driven project

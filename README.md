@@ -85,7 +85,7 @@ $ dvr render submit --preset delivery --wait --stream
 ### 3. MCP server (for LLM agents)
 
 ```bash
-$ pip install "dvr[mcp]"
+$ pip install dvr
 $ dvr mcp install-claude     # one-shot Claude Desktop setup
 $ dvr mcp serve              # or run the server yourself
 $ dvr mcp tools              # introspect the 39+ typed tools
@@ -114,10 +114,11 @@ LLM agents call typed tools directly — no shell parsing, no silent failures. T
 ### Optional extras
 
 ```bash
-pip install "dvr[mcp]"            # MCP server for LLM agents
 pip install "dvr[docs]"           # docs site dependencies
 pip install "dvr[dev]"            # dev (ruff, mypy, pytest)
 ```
+
+MCP support is included in the default install.
 
 ### Homebrew details
 
