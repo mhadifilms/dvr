@@ -43,7 +43,9 @@ def _make_render_namespace(
     """
     statuses = list(statuses or [{"JobStatus": "Complete", "CompletionPercentage": 100}])
     is_rendering = list(is_rendering_sequence or [False])
-    queue_states = list(queue_after_clear or [[{"JobId": job_id, "OutputFilename": output_filename}]])
+    queue_states = list(
+        queue_after_clear or [[{"JobId": job_id, "OutputFilename": output_filename}]]
+    )
 
     def get_status(_jid):
         if len(statuses) > 1:
@@ -230,7 +232,10 @@ def test_clear_raises_when_deletion_stalls_past_timeout():
         is_rendering_sequence=[False],
     )
 
-    with patch.object(time, "sleep", lambda *_a, **_kw: None), pytest.raises(errors.RenderError) as ctx:
+    with (
+        patch.object(time, "sleep", lambda *_a, **_kw: None),
+        pytest.raises(errors.RenderError) as ctx,
+    ):
         ns.clear(timeout=0.0, poll_interval=0.0)
 
     err = ctx.value
@@ -331,6 +336,5 @@ def test_setting_context_propagates_initial_set_failure():
     manager = MockNode("PM", {"SaveProject": True})
     project = Project(raw, manager)
 
-    with pytest.raises(errors.SettingsError):
-        with project.setting_context("badKey", "newValue"):
-            pytest.fail("body should not run when initial set fails")
+    with pytest.raises(errors.SettingsError), project.setting_context("badKey", "newValue"):
+        pytest.fail("body should not run when initial set fails")

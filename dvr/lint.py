@@ -133,7 +133,10 @@ def _rule_timeline_has_clips(r: Resolve) -> list[Issue]:
     issues: list[Issue] = []
     for tl in project.timeline.list():
         info = tl.inspect()
-        video_clip_count = sum(int(t.get("clip_count", 0)) for t in info["tracks"].get("video", []))
+        video_clip_count = sum(
+            int(t.get("item_count", t.get("clip_count", 0)))
+            for t in info["tracks"].get("video", [])
+        )
         if video_clip_count == 0:
             issues.append(
                 Issue(

@@ -6,6 +6,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-04-29
+
+Patch release focused on MCP workflow reliability for agent-driven project
+cleanup, media-bin addressing, timeline placement, and declarative specs.
+No breaking changes.
+
+### Added
+
+- MCP cleanup/discovery tools:
+  - `project_delete`
+  - `project_settings_get`
+  - `timeline_delete`
+  - `timeline_rename`
+  - `timeline_clear`
+  - `media_bin_delete`
+
+### Fixed
+
+- `Spec.parse_spec()` now rejects `project: {name: ...}` and other
+  non-string project values instead of stringifying them into accidental
+  project names.
+- `spec.apply(..., continue_on_error=True)` continues applying remaining
+  settings/markers after per-key failures and returns a structured
+  `SpecError` summary at the end.
+- MCP `media_import`, `media_ls`, and `media_move.source_bin` now accept
+  slash-addressed bin paths consistently with `media_bin_ensure`.
+- MCP `timeline_append` now fails loudly when Resolve returns a partial
+  append, and requires explicit `record_frame` values for non-default
+  tracks to avoid silent V2/A2+ placement loss.
+- `lint` no longer reports `empty_timeline` for populated timelines whose
+  track summaries expose `item_count` rather than the old `clip_count`.
+- `schema settings` now documents color-space dependency papercuts such as
+  `separateColorSpaceAndGamma` ordering and `colorSpaceOutput` values.
+
 ## [1.1.2] - 2026-04-29
 
 Patch release focused on render-queue reliability for image-sequence

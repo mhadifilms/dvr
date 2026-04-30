@@ -134,7 +134,13 @@ PROJECT_SETTINGS: dict[str, dict[str, Any]] = {
         "common": ["Rec.709", "Rec.2020", "P3-D65", "ARRI Wide Gamut", "Sony S-Gamut3"],
     },
     "colorSpaceTimeline": {"type": "enum-or-string", "common": ["Rec.709", "Rec.2020", "P3-D65"]},
-    "colorSpaceOutput": {"type": "enum-or-string", "common": ["Rec.709", "Rec.2020", "P3-D65"]},
+    "colorSpaceOutput": {
+        "type": "enum-or-string",
+        "common": ["Same as Timeline", "Rec.709", "Rec.2020", "P3-D65"],
+        "notes": [
+            "Some Resolve builds reject a raw gamut like 'Rec.2020' here and expect 'Same as Timeline'."
+        ],
+    },
     "colorSpaceInputGamma": {
         "type": "enum-or-string",
         "common": ["Gamma 2.4", "ST2084", "Linear", "Log3G10", "S-Log3"],
@@ -156,7 +162,14 @@ PROJECT_SETTINGS: dict[str, dict[str, Any]] = {
     "timelineResolutionHeight": {"type": "int"},
     "hdrMasteringOn": {"type": "bool-string", "values": ["0", "1"]},
     "isAutoColorManage": {"type": "bool-string", "values": ["0", "1"]},
-    "separateColorSpaceAndGamma": {"type": "bool-string", "values": ["0", "1"]},
+    "separateColorSpaceAndGamma": {
+        "type": "bool-string",
+        "values": ["0", "1"],
+        "notes": [
+            "Set to '1' before applying separate colorSpace* and colorSpace*Gamma values.",
+            "When '0', Resolve may store combined values such as 'Rec.709 Gamma 2.4'.",
+        ],
+    },
 }
 
 

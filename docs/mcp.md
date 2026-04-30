@@ -80,19 +80,19 @@ dvr mcp tools --detail  # full descriptions and JSON schemas
 | `ping` | Verify connection. Returns version. |
 | `inspect` | One-call snapshot of app + project + timeline. |
 | `page_get` / `page_set` | Read or switch the current page. |
-| `project_list` / `project_ensure` / `project_current` / `project_save` | Project ops. |
-| `timeline_list` / `timeline_inspect` / `timeline_ensure` / `timeline_switch` | Timeline ops. |
-| `timeline_append` | Append media to explicit timeline tracks (`track_index`, `record_frame`, source in/out). |
+| `project_list` / `project_ensure` / `project_current` / `project_settings_get` / `project_save` / `project_delete` | Project ops. |
+| `timeline_list` / `timeline_inspect` / `timeline_ensure` / `timeline_switch` / `timeline_rename` / `timeline_delete` / `timeline_clear` | Timeline ops. |
+| `timeline_append` | Append media to explicit timeline tracks (`track_index`, `record_frame`, source in/out). Non-default tracks require explicit `record_frame` per item. |
 | `marker_add` | Add a marker at a frame on a timeline. |
 | `clip_where` | Filter timeline items by safe declarative fields (duration, name, track type). |
 | `media_inspect` / `media_bins` / `media_ls` / `media_import` | Media pool. |
 | `media_scan` | Scan a filesystem folder for importable video/audio files, skipping hidden AppleDouble files by default. |
-| `media_bin_ensure` / `media_move` | Create nested bins and move media-pool clips without breaking timelines. |
+| `media_bin_ensure` / `media_bin_delete` / `media_move` | Create/delete nested bins and move media-pool clips without breaking timelines. Slash paths like `Picture/Plates` are accepted consistently. |
 | `render_queue` / `render_presets` / `render_formats` / `render_codecs` | Render config. |
 | `render_submit` / `render_status` / `render_stop` / `render_clear` | Render control. |
 | `interchange_export` | Export EDL / AAF / FCPXML / OTIO / etc. |
 | `diff_timelines` / `diff_to_spec` | Structured diffs. |
-| `apply_spec` | Reconcile live state to a YAML/JSON spec (with optional `dry_run`). |
+| `apply_spec` | Reconcile live state to a YAML/JSON spec (with optional `dry_run` and `continue_on_error`). |
 | `snapshot_save` / `snapshot_restore` | Capture/restore project state. |
 | `lint` | Pre-flight validation. |
 | `eval` | Power-user Python eval. **Disabled** unless `DVR_MCP_ENABLE_EVAL=1`. |

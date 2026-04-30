@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -214,8 +216,21 @@ def parse_spec(data: dict[str, Any]) -> Spec:
             "Spec is missing required 'project' field.",
             fix="Add `project: <name>` at the top of the spec.",
         )
+    project = data["project"]
+    if not isinstance(project, str) or not project.strip():
+        raise errors.SpecError(
+            "Spec field 'project' must be a non-empty string.",
+            cause="The spec parser accepts `project: <name>`, not a mapping or object.",
+            fix="Use `project: MyProject` at the top of the spec.",
+            state={"project": project},
+        )
     timelines: list[TimelineSpec] = []
     for entry in data.get("timelines", []) or []:
+        if not isinstance(entry, dict):
+            raise errors.SpecError(
+                "Each timeline entry must be an object.",
+                state={"entry": entry},
+            )
         if "name" not in entry:
             raise errors.SpecError(
                 "Each timeline entry requires a 'name' field.",
@@ -251,7 +266,7 @@ def parse_spec(data: dict[str, Any]) -> Spec:
                         )
                     )
     return Spec(
-        project=str(data["project"]),
+        project=project,
         color_preset=color_preset,
         settings=dict(data.get("settings", {}) or {}),
         timelines=timelines,
@@ -360,6 +375,7 @@ def apply(
     *,
     dry_run: bool = False,
     run_hooks: bool = True,
+    continue_on_error: bool = False,
 ) -> list[Action]:
     """Reconcile the live Resolve state to match ``spec``."""
     actions = plan(spec, resolve)
@@ -368,6 +384,37 @@ def apply(
 
     if run_hooks:
         _run_hooks(spec.hooks, "before")
+
+    applied: list[Action] = []
+    failures: list[dict[str, Any]] = []
+
+    def record_failure(action: Action, exc: errors.DvrError) -> None:
+        failures.append(
+            {
+                "op": action.op,
+                "target": action.target,
+                "detail": action.detail,
+                "payload": action.payload,
+                "error": exc.to_dict(),
+            }
+        )
+        applied.append(
+            Action(
+                op="error",
+                target=action.target,
+                detail=exc.message,
+                payload={"action": action.payload, "error": exc.to_dict()},
+            )
+        )
+
+    def apply_or_record(action: Action, fn: Callable[[], None]) -> None:
+        try:
+            fn()
+            applied.append(action)
+        except errors.DvrError as exc:
+            if not continue_on_error:
+                raise
+            record_failure(action, exc)
 
     # Project — get-or-create.
     project = resolve.project.ensure(spec.project)
@@ -380,33 +427,87 @@ def apply(
 
     for key in SETTINGS_ORDER:
         if key in desired:
-            project.set_setting(key, desired[key])
+            value = desired[key]
+            apply_or_record(
+                Action(
+                    op="set",
+                    target=f"project:{spec.project}/setting:{key}",
+                    detail=f"= {value}",
+                    payload={"key": key, "value": value},
+                ),
+                partial(project.set_setting, key, value),
+            )
     for key, value in desired.items():
         if key not in SETTINGS_ORDER:
-            project.set_setting(key, value)
+            apply_or_record(
+                Action(
+                    op="set",
+                    target=f"project:{spec.project}/setting:{key}",
+                    detail=f"= {value}",
+                    payload={"key": key, "value": value},
+                ),
+                partial(project.set_setting, key, value),
+            )
 
     # Timelines.
     for tl_spec in spec.timelines:
         tl = project.timeline.ensure(tl_spec.name)
         for key, value in tl_spec.settings.items():
-            tl.set_setting(key, value)
+            apply_or_record(
+                Action(
+                    op="set",
+                    target=f"timeline:{tl_spec.name}/setting:{key}",
+                    detail=f"= {value}",
+                    payload={"key": key, "value": value, "timeline": tl_spec.name},
+                ),
+                partial(tl.set_setting, key, value),
+            )
         if tl_spec.fps is not None:
-            tl.set_setting("timelineFrameRate", str(tl_spec.fps))
+            apply_or_record(
+                Action(
+                    op="set",
+                    target=f"timeline:{tl_spec.name}/setting:timelineFrameRate",
+                    detail=f"= {tl_spec.fps}",
+                    payload={
+                        "key": "timelineFrameRate",
+                        "value": str(tl_spec.fps),
+                        "timeline": tl_spec.name,
+                    },
+                ),
+                partial(tl.set_setting, "timelineFrameRate", str(tl_spec.fps)),
+            )
         existing_markers = tl.markers()
         for marker in tl_spec.markers:
             frame = int(marker.get("frame", 0))
             if frame not in existing_markers:
-                tl.add_marker(
-                    frame=frame,
-                    color=str(marker.get("color", "Blue")),
-                    name=str(marker.get("name", "")),
-                    note=str(marker.get("note", "")),
-                    duration=int(marker.get("duration", 1)),
-                    custom_data=str(marker.get("custom_data", "")),
+                apply_or_record(
+                    Action(
+                        op="set",
+                        target=f"timeline:{tl_spec.name}/marker:{frame}",
+                        detail=str(marker.get("name", "")),
+                        payload={"timeline": tl_spec.name, "marker": marker},
+                    ),
+                    partial(
+                        tl.add_marker,
+                        frame=frame,
+                        color=str(marker.get("color", "Blue")),
+                        name=str(marker.get("name", "")),
+                        note=str(marker.get("note", "")),
+                        duration=int(marker.get("duration", 1)),
+                        custom_data=str(marker.get("custom_data", "")),
+                    ),
                 )
 
     if run_hooks:
         _run_hooks(spec.hooks, "after")
+
+    if failures:
+        raise errors.SpecError(
+            f"Spec applied with {len(failures)} failed action(s).",
+            cause="One or more setting/marker operations failed while continue_on_error=True.",
+            fix="Inspect state.failures, fix the invalid keys or values, and re-run the same spec.",
+            state={"project": spec.project, "failures": failures},
+        )
 
     return actions
 

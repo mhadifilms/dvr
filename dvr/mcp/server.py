@@ -253,6 +253,27 @@ def _ensure_bin_path(media: Any, path: str | list[str]) -> Any:
     return current
 
 
+def _find_bin_path(media: Any, path: str | list[str]) -> Any:
+    parts = [p for p in (path if isinstance(path, list) else str(path).split("/")) if p]
+    if not parts:
+        return media.root
+    if len(parts) == 1:
+        return media._find_folder(parts[0])
+    current = media.root
+    for part in parts:
+        for sub in current.subfolders:
+            if sub.name == part:
+                current = sub
+                break
+        else:
+            raise errors.MediaError(
+                f"No folder at path {path!r}.",
+                fix="Create it with `media_bin_ensure` first, or pass an existing bin path.",
+                state={"requested": path, "missing": part},
+            )
+    return current
+
+
 def _find_clip(
     media: Any, *, path: str | None = None, name: str | None = None, bin: str | None = None
 ) -> Any:
@@ -265,7 +286,7 @@ def _find_clip(
                     return clip
         return media.find_or_import(path, folder=bin) if bin else media.find_or_import(path)
     if name:
-        folders = [media._find_folder(bin)] if bin else list(media.walk())
+        folders = [_find_bin_path(media, bin)] if bin else list(media.walk())
         for folder in folders:
             for clip in folder.clips:
                 if clip.name == name:
@@ -384,12 +405,32 @@ def _h_project_current(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
     return current.inspect() if current else {"current": None}
 
 
+def _h_project_settings_get(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    current = ctx.resolve().project.current
+    if current is None:
+        raise errors.ProjectError("No project is currently loaded.")
+    keys = args.get("keys")
+    if keys:
+        return {str(key): current.get_setting(str(key)) for key in keys}
+    settings = current.get_setting()
+    return dict(settings) if isinstance(settings, dict) else {"settings": settings}
+
+
 def _h_project_save(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
     current = ctx.resolve().project.current
     if current is None:
         raise errors.ProjectError("No project is currently loaded.")
     current.save()
     return {"saved": current.name}
+
+
+def _h_project_delete(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    name = args["name"]
+    current = ctx.resolve().project.current
+    if bool(args.get("close_current", True)) and current is not None and current.name == name:
+        current.close()
+    ctx.resolve().project.delete(name)
+    return {"deleted": name}
 
 
 def _h_timeline_list(ctx: _Context, _args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -415,6 +456,44 @@ def _h_timeline_ensure(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
 def _h_timeline_switch(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     tl = ctx.resolve().timeline.set_current(args["name"])
     return {"current": tl.name}
+
+
+def _h_timeline_rename(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl = ctx.resolve().timeline.get(args["name"])
+    old = tl.name
+    tl.name = args["new_name"]
+    return {"renamed": old, "name": tl.name}
+
+
+def _h_timeline_delete(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    ctx.resolve().timeline.delete(args["name"])
+    return {"deleted": args["name"]}
+
+
+def _h_timeline_clear(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    r = ctx.resolve()
+    tl = r.timeline.get(args["timeline"]) if args.get("timeline") else r.timeline.current
+    if tl is None:
+        raise errors.TimelineError("No timeline is currently loaded.")
+    track_type = args.get("track_type")
+    track_indexes = args.get("track_indexes")
+    ripple = bool(args.get("ripple", False))
+    items: list[Any] = []
+    if track_indexes and not track_type:
+        raise errors.TimelineError(
+            "timeline_clear requires track_type when track_indexes is provided.",
+            fix="Pass track_type='video', 'audio', or 'subtitle' with track_indexes.",
+            state={"track_indexes": track_indexes},
+        )
+    if track_type and track_indexes:
+        for index in track_indexes:
+            items.extend(tl.track(track_type, int(index)).items)
+    elif track_type:
+        items.extend(tl.items(track_type))
+    else:
+        items.extend(tl.items())
+    tl.delete_clips(items, ripple=ripple)
+    return {"timeline": tl.name, "deleted": len(items), "ripple": ripple}
 
 
 def _h_marker_add(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
@@ -542,7 +621,7 @@ def _h_media_ls(ctx: _Context, args: dict[str, Any]) -> list[dict[str, Any]]:
     current = ctx.resolve().project.current
     if current is None:
         raise errors.ProjectError("No project is currently loaded.")
-    target = current.media._find_bin(args["bin"]) if args.get("bin") else current.media.root
+    target = _find_bin_path(current.media, args["bin"]) if args.get("bin") else current.media.root
     return [a.inspect() for a in target.assets()]
 
 
@@ -550,7 +629,7 @@ def _h_media_import(ctx: _Context, args: dict[str, Any]) -> list[dict[str, Any]]
     current = ctx.resolve().project.current
     if current is None:
         raise errors.ProjectError("No project is currently loaded.")
-    target_bin = current.media._find_bin(args["bin"]) if args.get("bin") else None
+    target_bin = _ensure_bin_path(current.media, args["bin"]) if args.get("bin") else None
     assets = current.media.import_(args["paths"], bin=target_bin)
     return [a.inspect() for a in assets]
 
@@ -582,7 +661,7 @@ def _h_media_bin_ensure(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
 def _h_media_move(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     current = _current_project(ctx)
     media = current.media
-    source = media._find_folder(args["source_bin"]) if args.get("source_bin") else media.root
+    source = _find_bin_path(media, args["source_bin"]) if args.get("source_bin") else media.root
     target = _ensure_bin_path(media, args["target_bin"])
     name_contains = args.get("name_contains")
     kind = args.get("kind")
@@ -605,6 +684,14 @@ def _h_media_move(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     return {"moved": len(clips), "target_bin": target.name}
 
 
+def _h_media_bin_delete(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    current = _current_project(ctx)
+    folder = _find_bin_path(current.media, args["path"])
+    name = folder.name
+    folder.delete()
+    return {"deleted": name, "path": args["path"]}
+
+
 def _h_timeline_append(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     r = ctx.resolve()
     current = r.project.current
@@ -616,8 +703,27 @@ def _h_timeline_append(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     if tl is None:
         raise errors.TimelineError("No timeline is currently loaded.")
 
+    requested_items = args["items"]
+    for item in requested_items:
+        track_index = int(item.get("track_index", 1))
+        media_type = item.get("media_type")
+        if track_index > 1 and "record_frame" not in item:
+            raise errors.TimelineError(
+                "timeline_append requires record_frame for non-default track targets.",
+                cause=(
+                    "DaVinci Resolve's AppendToTimeline does not maintain a separate "
+                    "end-of-track cursor for V2/A2+ targets."
+                ),
+                fix="Pass an explicit `record_frame` for every item targeting track_index >= 2.",
+                state={"item": item},
+            )
+        if media_type in ("video", "audio"):
+            track_type = media_type
+            while tl.track_count(track_type) < track_index:
+                tl.add_track(track_type)
+
     payload: list[dict[str, Any]] = []
-    for item in args["items"]:
+    for item in requested_items:
         clip = _find_clip(
             media,
             path=item.get("path"),
@@ -637,6 +743,13 @@ def _h_timeline_append(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
                 entry[resolve_key] = int(item[key])
         payload.append(entry)
     appended = media.append_to_timeline(payload)
+    if len(appended) != len(payload):
+        raise errors.TimelineError(
+            "Resolve appended fewer timeline items than requested.",
+            cause="AppendToTimeline returned a partial result; Resolve may have rejected track targeting.",
+            fix="Use explicit `record_frame` values and inspect the timeline before retrying.",
+            state={"requested_count": len(payload), "appended_count": len(appended)},
+        )
     return {"timeline": tl.name, "appended": len(appended)}
 
 
@@ -680,6 +793,7 @@ def _h_apply_spec(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
         ctx.resolve(),
         dry_run=bool(args.get("dry_run", False)),
         run_hooks=bool(args.get("run_hooks", True)),
+        continue_on_error=bool(args.get("continue_on_error", False)),
     )
     return {
         "spec": str(args["spec_path"]),
@@ -893,9 +1007,27 @@ def _build_registry() -> list[_ToolSpec]:
             handler=_h_project_current,
         ),
         _ToolSpec(
+            name="project_settings_get",
+            description="Read project settings from the current project. Pass keys to limit output.",
+            schema=_schema({"keys": {"type": "array", "items": {"type": "string"}}}),
+            handler=_h_project_settings_get,
+        ),
+        _ToolSpec(
             name="project_save",
             description="Save the currently loaded project.",
             handler=_h_project_save,
+        ),
+        _ToolSpec(
+            name="project_delete",
+            description="Delete a project by name. Closes it first when it is the current project.",
+            schema=_schema(
+                {
+                    "name": {"type": "string"},
+                    "close_current": {"type": "boolean", "default": True},
+                },
+                required=["name"],
+            ),
+            handler=_h_project_delete,
         ),
         _ToolSpec(
             name="timeline_list",
@@ -926,6 +1058,37 @@ def _build_registry() -> list[_ToolSpec]:
             description="Set a timeline as the current one.",
             schema=_schema({"name": {"type": "string"}}, required=["name"]),
             handler=_h_timeline_switch,
+        ),
+        _ToolSpec(
+            name="timeline_rename",
+            description="Rename a timeline in the current project.",
+            schema=_schema(
+                {"name": {"type": "string"}, "new_name": {"type": "string"}},
+                required=["name", "new_name"],
+            ),
+            handler=_h_timeline_rename,
+        ),
+        _ToolSpec(
+            name="timeline_delete",
+            description="Delete a timeline from the current project.",
+            schema=_schema({"name": {"type": "string"}}, required=["name"]),
+            handler=_h_timeline_delete,
+        ),
+        _ToolSpec(
+            name="timeline_clear",
+            description=(
+                "Delete timeline items from the current or named timeline. Can be scoped "
+                "by track_type and 1-based track_indexes."
+            ),
+            schema=_schema(
+                {
+                    "timeline": {"type": "string"},
+                    "track_type": {"type": "string", "enum": ["video", "audio", "subtitle"]},
+                    "track_indexes": {"type": "array", "items": {"type": "integer"}},
+                    "ripple": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_timeline_clear,
         ),
         _ToolSpec(
             name="marker_add",
@@ -1096,6 +1259,12 @@ def _build_registry() -> list[_ToolSpec]:
             handler=_h_media_bin_ensure,
         ),
         _ToolSpec(
+            name="media_bin_delete",
+            description="Delete a media-pool bin by leaf name or slash path.",
+            schema=_schema({"path": {"type": "string"}}, required=["path"]),
+            handler=_h_media_bin_delete,
+        ),
+        _ToolSpec(
             name="media_move",
             description=(
                 "Move media-pool clips between bins using safe filters. Moving clips "
@@ -1137,8 +1306,20 @@ def _build_registry() -> list[_ToolSpec]:
                                 "name": {"type": "string"},
                                 "bin": {"type": "string"},
                                 "media_type": {"type": "string", "enum": ["video", "audio"]},
-                                "track_index": {"type": "integer"},
-                                "record_frame": {"type": "integer"},
+                                "track_index": {
+                                    "type": "integer",
+                                    "description": (
+                                        "1-based Resolve track index. Values >= 2 require "
+                                        "an explicit record_frame for each item."
+                                    ),
+                                },
+                                "record_frame": {
+                                    "type": "integer",
+                                    "description": (
+                                        "Timeline record frame. Required for non-default "
+                                        "track targets (track_index >= 2)."
+                                    ),
+                                },
                                 "start_frame": {"type": "integer"},
                                 "end_frame": {"type": "integer"},
                             },
@@ -1201,6 +1382,7 @@ def _build_registry() -> list[_ToolSpec]:
                     "spec_path": {"type": "string"},
                     "dry_run": {"type": "boolean", "default": False},
                     "run_hooks": {"type": "boolean", "default": True},
+                    "continue_on_error": {"type": "boolean", "default": False},
                 },
                 required=["spec_path"],
             ),
