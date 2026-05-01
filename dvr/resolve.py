@@ -175,8 +175,29 @@ class Resolve:
         '20.3.1'
     """
 
-    def __init__(self, *, auto_launch: bool = True, timeout: float = 30.0) -> None:
-        self._raw = connect(auto_launch=auto_launch, timeout=timeout)
+    def __init__(
+        self,
+        *,
+        auto_launch: bool = True,
+        timeout: float = 30.0,
+        discover_remote: bool | None = None,
+    ) -> None:
+        """Open a connection to DaVinci Resolve.
+
+        Args:
+            auto_launch:     Launch the local Resolve if it isn't running.
+            timeout:         Total seconds to wait for a connection.
+            discover_remote: If True, allow falling back to ``pinghosts``
+                             network discovery (any Resolve on the LAN).
+                             Defaults to ``False`` (or the value of
+                             ``$DVR_DISCOVER_REMOTE``). Only set when you
+                             intentionally want to drive a remote Resolve.
+        """
+        self._raw = connect(
+            auto_launch=auto_launch,
+            timeout=timeout,
+            discover_remote=discover_remote,
+        )
         self._project_manager = require(
             self._raw.GetProjectManager(),
             error=errors.ConnectionError,

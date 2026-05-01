@@ -292,14 +292,32 @@ def connect(
     auto_launch: bool = True,
     timeout: float = 30.0,
     call_timeout: float = 5.0,
+    discover_remote: bool | None = None,
 ) -> Any:
     """Connect to DaVinci Resolve and return its scripting handle.
 
+    By default this only talks to **the local machine's Resolve**. The
+    ``pinghosts`` network-discovery fallback is gated behind
+    ``discover_remote=True`` (or the ``DVR_DISCOVER_REMOTE=1`` env var)
+    because ``pinghosts`` will silently connect to *any* Resolve scripting
+    host on the LAN — e.g. a render node — when the local Resolve isn't
+    running. Surprising and easy to miss.
+
+    The macOS LAN-IP workaround (``_try_lan_ip``) is unaffected: it iterates
+    *this* machine's network interfaces only, which is the documented
+    workaround for Resolve binding its scripting socket to a LAN IP rather
+    than 127.0.0.1.
+
     Args:
-        auto_launch:   If True, launch Resolve when it isn't running.
-        timeout:       Total seconds to wait for a connection (incl. launch).
-        call_timeout:  Per-call timeout for the underlying scripting calls
-                       (``scriptapp``, ``pinghosts``).
+        auto_launch:     If True, launch Resolve when it isn't running.
+        timeout:         Total seconds to wait for a connection (incl. launch).
+        call_timeout:    Per-call timeout for the underlying scripting calls
+                         (``scriptapp``, ``pinghosts``).
+        discover_remote: If True, fall back to ``pinghosts('')`` when no
+                         local Resolve answers. Defaults to ``False`` (or
+                         the value of ``$DVR_DISCOVER_REMOTE``). Pass
+                         explicitly when you intentionally want to drive a
+                         remote Resolve over the LAN.
 
     Returns:
         The Resolve handle (the same object as ``DaVinciResolveScript.scriptapp("Resolve")``).
@@ -309,6 +327,9 @@ def connect(
         NotInstalledError:      Resolve's scripting library was not found.
         ScriptingDisabledError: Resolve is running but external scripting is off.
     """
+    if discover_remote is None:
+        discover_remote = os.environ.get("DVR_DISCOVER_REMOTE", "").strip() in ("1", "true", "yes")
+
     _ensure_environment()
     dvr_script = _load_fusionscript(timeout=min(call_timeout * 2, 10.0))
 
@@ -319,7 +340,7 @@ def connect(
         # macOS: LAN IP first; otherwise try localhost first.
         if sys.platform == "darwin":
             handle = _try_lan_ip(dvr_script, timeout=call_timeout)
-            if handle is None:
+            if handle is None and discover_remote:
                 handle = _try_pinghosts(dvr_script, timeout=call_timeout)
         else:
 
@@ -331,7 +352,7 @@ def connect(
             )
             if handle is None:
                 handle = _try_lan_ip(dvr_script, timeout=call_timeout)
-            if handle is None:
+            if handle is None and discover_remote:
                 handle = _try_pinghosts(dvr_script, timeout=call_timeout)
 
         if handle is not None:
@@ -358,20 +379,33 @@ def connect(
         raise errors.ScriptingDisabledError(
             "Could not reach DaVinci Resolve over its scripting socket.",
             cause=(
-                "Resolve is running but did not respond to scriptapp() or pinghosts() "
-                "within the timeout."
+                "Resolve is running but did not respond to scriptapp() within the timeout."
             ),
             fix=(
                 "In Resolve, open Preferences > General and set "
                 "'External scripting using' to 'Local'. Then quit and relaunch Resolve."
             ),
-            state={"platform": sys.platform, "timeout_s": timeout, "auto_launch": auto_launch},
+            state={
+                "platform": sys.platform,
+                "timeout_s": timeout,
+                "auto_launch": auto_launch,
+                "discover_remote": discover_remote,
+            },
         )
     raise errors.ConnectionError(
-        "DaVinci Resolve is not running and could not be launched.",
-        cause="Resolve is not currently running on this machine.",
-        fix="Launch DaVinci Resolve, then retry. Pass auto_launch=False to disable auto-launch.",
-        state={"platform": sys.platform, "timeout_s": timeout, "auto_launch": auto_launch},
+        "DaVinci Resolve is not running locally and could not be launched.",
+        cause="No local Resolve responded; remote network discovery is disabled by default.",
+        fix=(
+            "Launch DaVinci Resolve on this machine and retry. "
+            "To intentionally drive a remote Resolve over the LAN, pass "
+            "discover_remote=True or set DVR_DISCOVER_REMOTE=1."
+        ),
+        state={
+            "platform": sys.platform,
+            "timeout_s": timeout,
+            "auto_launch": auto_launch,
+            "discover_remote": discover_remote,
+        },
     )
 
 
