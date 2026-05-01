@@ -674,13 +674,28 @@ class MediaPool:
     def delete_timelines(self, timelines: Any) -> None:
         """Delete one or more timelines from the pool.
 
-        Accepts a :class:`~dvr.timeline.Timeline`, its name as a string, or
-        an iterable of either. Wraps Resolve's ``DeleteTimelines``.
+        Accepts a :class:`~dvr.timeline.Timeline`, its name as a string, a
+        raw fusionscript Timeline handle, or an iterable of any of those.
+        Wraps Resolve's ``DeleteTimelines``.
         """
         from .timeline import Timeline as _Timeline
 
-        if isinstance(timelines, (_Timeline, str)) or not isinstance(timelines, Iterable):
+        # Single-item shortcut. Raw fusionscript handles are PyRemoteObject
+        # proxies whose type confuses ``isinstance(_, Iterable)`` (raises
+        # ``TypeError: issubclass() arg 1 must be a class``), so we detect
+        # them by their fusionscript surface (GetName) rather than via ABCs.
+        is_single_handle = (
+            hasattr(timelines, "GetName") and not hasattr(timelines, "__iter__")
+        )
+        if isinstance(timelines, (_Timeline, str)) or is_single_handle:
             timelines = [timelines]
+        else:
+            try:
+                is_iter = isinstance(timelines, Iterable)
+            except TypeError:
+                is_iter = False
+            if not is_iter:
+                timelines = [timelines]
         raws: list[Any] = []
         for t in timelines:
             if isinstance(t, _Timeline):
