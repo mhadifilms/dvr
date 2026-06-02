@@ -306,7 +306,10 @@ def connect(
     The macOS LAN-IP workaround (``_try_lan_ip``) is unaffected: it iterates
     *this* machine's network interfaces only, which is the documented
     workaround for Resolve binding its scripting socket to a LAN IP rather
-    than 127.0.0.1.
+    than 127.0.0.1. On macOS the connect path tries those LAN IPs first and
+    then falls back to plain ``scriptapp("Resolve")`` on localhost, so a local
+    Resolve that binds to 127.0.0.1 (External scripting = Local) or a machine
+    with no LAN IP still connects without any remote discovery.
 
     Args:
         auto_launch:     If True, launch Resolve when it isn't running.
@@ -336,24 +339,33 @@ def connect(
     deadline = time.monotonic() + timeout
     launched = False
 
+    def _scriptapp_localhost() -> Any:
+        return dvr_script.scriptapp("Resolve")
+
     while time.monotonic() < deadline:
-        # macOS: LAN IP first; otherwise try localhost first.
+        # Both attempts below are local-only: plain localhost and *this*
+        # machine's own interface IPs. Only ``pinghosts`` reaches other hosts
+        # on the LAN, and it stays gated behind ``discover_remote``.
         if sys.platform == "darwin":
+            # macOS quirk: Resolve often binds its scripting socket to the
+            # machine's LAN IP rather than 127.0.0.1, so try LAN IPs first.
+            # Fall back to localhost for setups where scripting binds to
+            # 127.0.0.1 (External scripting = Local) or that have no LAN IP —
+            # otherwise a running, scriptable local Resolve is unreachable.
             handle = _try_lan_ip(dvr_script, timeout=call_timeout)
-            if handle is None and discover_remote:
-                handle = _try_pinghosts(dvr_script, timeout=call_timeout)
+            if handle is None:
+                handle = _call_with_timeout(
+                    _scriptapp_localhost, timeout=call_timeout, label="scriptapp(localhost)"
+                )
         else:
-
-            def call_local() -> Any:
-                return dvr_script.scriptapp("Resolve")
-
             handle = _call_with_timeout(
-                call_local, timeout=call_timeout, label="scriptapp(localhost)"
+                _scriptapp_localhost, timeout=call_timeout, label="scriptapp(localhost)"
             )
             if handle is None:
                 handle = _try_lan_ip(dvr_script, timeout=call_timeout)
-            if handle is None and discover_remote:
-                handle = _try_pinghosts(dvr_script, timeout=call_timeout)
+
+        if handle is None and discover_remote:
+            handle = _try_pinghosts(dvr_script, timeout=call_timeout)
 
         if handle is not None:
             try:

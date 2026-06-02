@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-06-02
+
+Patch release fixing local connection on macOS. No breaking changes.
+
+### Fixed
+
+- `connect()` on macOS now falls back to plain `scriptapp("Resolve")` on
+  localhost after trying the machine's LAN IPs. Previously the macOS path
+  only attempted LAN-IP connections, so a running, scriptable local Resolve
+  that binds its scripting socket to `127.0.0.1` (External scripting = Local),
+  or a machine with no usable LAN IP, was unreachable unless remote discovery
+  was enabled. Remote `pinghosts` discovery remains gated behind
+  `discover_remote`.
+
 ## [1.1.4] - 2026-04-30
 
 Patch release focused on simplifying installation for MCP users. No breaking
