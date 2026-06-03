@@ -149,6 +149,17 @@ class App:
         """Quit DaVinci Resolve gracefully."""
         self._raw.Quit()
 
+    def disable_background_tasks(self) -> None:
+        """Disable all background tasks for the current Resolve session.
+
+        Wraps ``DisableBackgroundTasksForCurrentResolveSession`` (Resolve
+        21+). Useful before scripted renders so cache/analysis jobs don't
+        contend for resources. No-ops on older builds that lack the call.
+        """
+        method = getattr(self._raw, "DisableBackgroundTasksForCurrentResolveSession", None)
+        if callable(method):
+            method()
+
     def inspect(self) -> dict[str, Any]:
         return {
             "version": self.version,

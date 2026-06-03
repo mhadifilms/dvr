@@ -124,3 +124,52 @@ def import_(
     r = _resolve(ctx)
     proj = r.project.import_(file, name=name)
     output.emit(proj.inspect(), fmt=ctx.obj["format"], headline=f"imported: {proj.name}")
+
+
+def _current(ctx: typer.Context):  # type: ignore[no-untyped-def]
+    r = _resolve(ctx)
+    proj = r.project.current
+    if proj is None:
+        typer.echo("No project is currently loaded.", err=True)
+        raise typer.Exit(1)
+    return proj
+
+
+@app.command("reset-intellisearch")
+def reset_intellisearch(ctx: typer.Context) -> None:
+    """Clear Intellisearch analysis data for the current project (Resolve 21+)."""
+    proj = _current(ctx)
+    proj.reset_intellisearch_analysis()
+    output.emit({"reset_intellisearch": proj.name}, fmt=ctx.obj["format"])
+
+
+@app.command("generate-speech")
+def generate_speech(
+    ctx: typer.Context,
+    text: Annotated[str, typer.Option("--text", help="Text to synthesize.")],
+    timecode: Annotated[
+        str, typer.Option("--timecode", help="Timecode to place the clip at (if added).")
+    ] = "01:00:00:00",
+    voice: Annotated[
+        str | None, typer.Option("--voice", help="Voice model, e.g. 'Female 1'.")
+    ] = None,
+    track: Annotated[
+        int | None, typer.Option("--track", help="Audio track index when adding to timeline.")
+    ] = None,
+    add_to_timeline: Annotated[
+        bool,
+        typer.Option("--add-to-timeline/--no-add-to-timeline", help="Place the clip on the timeline."),
+    ] = True,
+) -> None:
+    """Generate a text-to-speech audio clip (Resolve 21+, Studio)."""
+    proj = _current(ctx)
+    settings: dict[str, object] = {"TextInput": text, "AddToTimeline": add_to_timeline}
+    if voice:
+        settings["VoiceModel"] = voice
+    if track is not None:
+        settings["AudioTrack"] = track
+    clip = proj.generate_speech(settings, timecode)
+    output.emit(
+        {"generated": clip.name, "timecode": timecode, "added_to_timeline": add_to_timeline},
+        fmt=ctx.obj["format"],
+    )

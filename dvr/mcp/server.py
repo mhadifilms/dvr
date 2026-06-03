@@ -692,6 +692,95 @@ def _h_media_bin_delete(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     return {"deleted": name, "path": args["path"]}
 
 
+# ---- AI / Studio (Resolve 21+) -------------------------------------------
+
+
+def _ai_media_target(ctx: _Context, args: dict[str, Any]) -> Any:
+    """Resolve the AI target: a single clip (``clip``) or a bin/folder (``bin``)."""
+    media = _current_project(ctx).media
+    if args.get("clip"):
+        return _find_clip(media, name=args["clip"], bin=args.get("bin"))
+    return _find_bin_path(media, args["bin"]) if args.get("bin") else media.root
+
+
+def _h_media_transcribe(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    target = _ai_media_target(ctx, args)
+    target.transcribe(use_speaker_detection=args.get("speaker_detection"))
+    return {"transcribed": target.name, "speaker_detection": args.get("speaker_detection")}
+
+
+def _h_media_classify_audio(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    target = _ai_media_target(ctx, args)
+    if bool(args.get("clear", False)):
+        target.clear_audio_classification()
+        return {"cleared_classification": target.name}
+    target.classify_audio()
+    return {"classified": target.name}
+
+
+def _h_media_deblur(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    target = _ai_media_target(ctx, args)
+    options: dict[str, Any] = {}
+    if args.get("format"):
+        options["Format"] = args["format"]
+    if args.get("codec"):
+        options["Codec"] = args["codec"]
+    if bool(args.get("extreme", False)):
+        options["UseExtremeMode"] = True
+    result = target.remove_motion_blur(options or None)
+    if isinstance(result, list):
+        return {
+            "deblurred": [
+                {"original": orig.name, "deblurred": new.name} for orig, new in result
+            ]
+        }
+    return {"deblurred": result.name if result is not None else None}
+
+
+def _h_media_analyze(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    target = _ai_media_target(ctx, args)
+    kind = args["kind"]
+    if kind == "intellisearch":
+        ok = target.analyze_for_intellisearch(
+            identify_faces=bool(args.get("faces", False)),
+            better_mode=bool(args.get("better", False)),
+        )
+    elif kind == "slate":
+        ok = target.analyze_for_slate(args.get("color", "Blue"))
+    else:
+        raise errors.MediaError(
+            f"Unknown analysis kind {kind!r}.",
+            fix="Use 'intellisearch' or 'slate'.",
+        )
+    return {"analyzed": target.name, "kind": kind, "ok": bool(ok)}
+
+
+def _h_project_reset_intellisearch(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
+    current = _current_project(ctx)
+    current.reset_intellisearch_analysis()
+    return {"reset_intellisearch": current.name}
+
+
+def _h_project_generate_speech(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    current = _current_project(ctx)
+    settings: dict[str, Any] = {
+        "TextInput": args["text"],
+        "AddToTimeline": bool(args.get("add_to_timeline", True)),
+    }
+    if args.get("voice"):
+        settings["VoiceModel"] = args["voice"]
+    if args.get("track") is not None:
+        settings["AudioTrack"] = int(args["track"])
+    timecode = args.get("timecode", "01:00:00:00")
+    clip = current.generate_speech(settings, timecode)
+    return {"generated": clip.name, "timecode": timecode}
+
+
+def _h_disable_background_tasks(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
+    ctx.resolve().app.disable_background_tasks()
+    return {"background_tasks_disabled": True}
+
+
 def _h_timeline_append(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     r = ctx.resolve()
     current = r.project.current
@@ -1285,6 +1374,104 @@ def _build_registry() -> list[_ToolSpec]:
                 required=["target_bin"],
             ),
             handler=_h_media_move,
+        ),
+        # ---- media AI / Studio (Resolve 21+) ---------------------------
+        _ToolSpec(
+            name="media_transcribe",
+            description=(
+                "Transcribe audio for a bin (recursively) or a single clip. "
+                "speaker_detection (Resolve 21+) overrides the project setting when set."
+            ),
+            schema=_schema(
+                {
+                    "bin": {"type": "string"},
+                    "clip": {"type": "string"},
+                    "speaker_detection": {"type": "boolean"},
+                }
+            ),
+            handler=_h_media_transcribe,
+        ),
+        _ToolSpec(
+            name="media_classify_audio",
+            description=(
+                "Analyze and classify clip audio into categories for a bin or single clip "
+                "(Resolve 21+, Studio). Set clear=true to clear classification instead."
+            ),
+            schema=_schema(
+                {
+                    "bin": {"type": "string"},
+                    "clip": {"type": "string"},
+                    "clear": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_media_classify_audio,
+        ),
+        _ToolSpec(
+            name="media_deblur",
+            description=(
+                "Apply AI motion deblur to a bin or single clip, rendering new clips "
+                "(Resolve 21+, Studio)."
+            ),
+            schema=_schema(
+                {
+                    "bin": {"type": "string"},
+                    "clip": {"type": "string"},
+                    "format": {"type": "string"},
+                    "codec": {"type": "string"},
+                    "extreme": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_media_deblur,
+        ),
+        _ToolSpec(
+            name="media_analyze",
+            description=(
+                "Run Intellisearch or AI Slate ID analysis on a bin or single clip "
+                "(Resolve 21+, Studio). Returns ok=false if the required Extra is missing."
+            ),
+            schema=_schema(
+                {
+                    "kind": {"type": "string", "enum": ["intellisearch", "slate"]},
+                    "bin": {"type": "string"},
+                    "clip": {"type": "string"},
+                    "faces": {"type": "boolean", "default": False},
+                    "better": {"type": "boolean", "default": False},
+                    "color": {"type": "string", "default": "Blue"},
+                },
+                required=["kind"],
+            ),
+            handler=_h_media_analyze,
+        ),
+        _ToolSpec(
+            name="project_reset_intellisearch",
+            description="Clear Intellisearch analysis data for the current project (Resolve 21+).",
+            handler=_h_project_reset_intellisearch,
+        ),
+        _ToolSpec(
+            name="project_generate_speech",
+            description=(
+                "Generate a text-to-speech audio clip and optionally place it on the "
+                "current timeline (Resolve 21+, Studio)."
+            ),
+            schema=_schema(
+                {
+                    "text": {"type": "string"},
+                    "voice": {"type": "string", "description": "Voice model, e.g. 'Female 1'."},
+                    "timecode": {"type": "string", "default": "01:00:00:00"},
+                    "track": {"type": "integer"},
+                    "add_to_timeline": {"type": "boolean", "default": True},
+                },
+                required=["text"],
+            ),
+            handler=_h_project_generate_speech,
+        ),
+        _ToolSpec(
+            name="disable_background_tasks",
+            description=(
+                "Disable background tasks for the current Resolve session (Resolve 21+; "
+                "no-op on older builds). Useful before scripted renders."
+            ),
+            handler=_h_disable_background_tasks,
         ),
         _ToolSpec(
             name="timeline_append",

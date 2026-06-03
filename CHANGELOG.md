@@ -6,6 +6,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-03
+
+DaVinci Resolve 21 support. Additive across the library, CLI, and MCP
+server, with backward compatibility for pre-21 / Free installs.
+
+### Added
+
+- DaVinci Resolve 21 AI/Studio scripting surface, exposed across the
+  library, CLI, and MCP server. On older Resolve builds (or the Free
+  edition) these raise a structured "requires DaVinci Resolve 21" error
+  instead of leaking an `AttributeError`.
+  - Library:
+    - `Clip` and `Folder`: `classify_audio()`,
+      `clear_audio_classification()`, `remove_motion_blur(options)`,
+      `analyze_for_intellisearch(...)`, `analyze_for_slate(marker_color)`.
+    - `Project`: `reset_intellisearch_analysis()`,
+      `generate_speech(settings, timecode)`.
+    - `App`: `disable_background_tasks()`
+      (`DisableBackgroundTasksForCurrentResolveSession`; safe no-op on
+      pre-21 builds).
+  - CLI: `dvr media transcribe`, `dvr media classify-audio`,
+    `dvr media deblur`, `dvr media analyze {intellisearch|slate}`,
+    `dvr project reset-intellisearch`, `dvr project generate-speech`,
+    and top-level `dvr disable-background-tasks`. Each targets a bin
+    (default: root, recursive) or a single clip via `--clip`.
+  - MCP tools: `media_transcribe`, `media_classify_audio`,
+    `media_deblur`, `media_analyze`, `project_reset_intellisearch`,
+    `project_generate_speech`, `disable_background_tasks`.
+- `dvr._wrap.requires_method` — internal helper that resolves a raw
+  Resolve method or raises a clear minimum-version error, used to keep
+  the new v21 calls backward compatible on older installs.
+
+### Fixed
+
+- `Clip.transcribe()` / `Folder.transcribe()` no longer pass the legacy
+  `language` string as the first positional argument to Resolve's
+  `TranscribeAudio`. Resolve 21 reinterprets that first positional as
+  `useSpeakerDetection`, so a truthy value like `"auto"` silently enabled
+  speaker detection. The method now calls `TranscribeAudio()` with no
+  args by default and accepts an explicit `use_speaker_detection`
+  keyword. `language` is retained for backwards compatibility but has no
+  effect on the API call (transcription language is a project setting).
+
 ## [1.1.7] - 2026-06-02
 
 Patch release fixing local connection on macOS. No breaking changes.

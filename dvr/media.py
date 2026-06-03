@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` shadow
 
 from . import errors
-from ._wrap import require
+from ._wrap import require, requires_method
 
 if TYPE_CHECKING:
     from .timeline import Timeline
@@ -267,18 +267,144 @@ class Clip:
 
     # --- transcribe -----------------------------------------------------
 
-    def transcribe(self, language: str = "auto") -> None:
-        """Run Resolve's Whisper-based audio transcription on this clip."""
-        if not self._raw.TranscribeAudio(language):
+    def transcribe(
+        self,
+        language: str = "auto",
+        *,
+        use_speaker_detection: bool | None = None,
+    ) -> None:
+        """Run Resolve's Whisper-based audio transcription on this clip.
+
+        ``use_speaker_detection`` maps to the ``useSpeakerDetection``
+        argument added in Resolve 21; when ``None`` (the default) Resolve
+        falls back to the project's transcription setting.
+
+        ``language`` is kept for backwards compatibility but is *not* part
+        of Resolve's ``TranscribeAudio`` signature — the transcription
+        language is a project setting, so this argument has no effect on
+        the API call. (Before this fix it was passed positionally, which
+        in Resolve 21 collides with ``useSpeakerDetection``.)
+        """
+        # Pre-21 builds expose TranscribeAudio() with no arguments; only
+        # reach for the v21 useSpeakerDetection arg when explicitly asked.
+        if use_speaker_detection is not None:
+            transcribe = requires_method(
+                self._raw,
+                "TranscribeAudio",
+                feature="Speaker detection during transcription",
+                error=errors.MediaError,
+                state={"clip": self.name},
+            )
+            ok = transcribe(use_speaker_detection)
+        else:
+            ok = self._raw.TranscribeAudio()
+        if not ok:
             raise errors.MediaError(
                 f"Could not transcribe clip {self.name!r}.",
                 cause="TranscribeAudio returned False.",
                 fix="Open Resolve's Edit page to verify Whisper models are downloaded.",
-                state={"clip": self.name, "language": language},
+                state={"clip": self.name, "use_speaker_detection": use_speaker_detection},
             )
 
     def clear_transcription(self) -> None:
         self._raw.ClearTranscription()
+
+    # --- AI / Studio (Resolve 21+) --------------------------------------
+
+    def classify_audio(self) -> None:
+        """Analyze and classify this clip's audio into categories.
+
+        Requires DaVinci Resolve Studio (Resolve 21+). Raises a clear
+        version error on older builds that lack the API.
+        """
+        classify = requires_method(
+            self._raw,
+            "PerformAudioClassification",
+            feature="Audio classification",
+            error=errors.MediaError,
+            state={"clip": self.name},
+        )
+        if not classify():
+            raise errors.MediaError(
+                f"Could not classify audio for clip {self.name!r}.",
+                cause="PerformAudioClassification returned False.",
+                fix="Requires Resolve 21 Studio; check the Extras Download Manager.",
+                state={"clip": self.name},
+            )
+
+    def clear_audio_classification(self) -> None:
+        """Clear any audio classification on this clip (Resolve 21+)."""
+        clear = requires_method(
+            self._raw,
+            "ClearAudioClassification",
+            feature="Audio classification",
+            error=errors.MediaError,
+            state={"clip": self.name},
+        )
+        clear()
+
+    def remove_motion_blur(self, options: dict[str, Any] | None = None) -> Clip | None:
+        """Apply AI motion deblur, returning the newly created clip.
+
+        ``options`` maps to Resolve's ``deblurOption`` dict (see the
+        "Motion Deblur Settings" section of the scripting docs: keys like
+        ``FileName``, ``Format``, ``Codec``, ``UseExtremeMode``,
+        ``UseMarkInMarkOut``, ``RenderAtSourceRes``, ``UseMoreGpuMemory``).
+        Requires DaVinci Resolve Studio (Resolve 21+).
+        """
+        deblur = requires_method(
+            self._raw,
+            "RemoveMotionBlur",
+            feature="AI motion deblur",
+            error=errors.MediaError,
+            state={"clip": self.name},
+        )
+        raw = deblur(options or {})
+        if not raw:
+            raise errors.MediaError(
+                f"Could not remove motion blur on clip {self.name!r}.",
+                cause="RemoveMotionBlur returned a falsy value.",
+                fix="Requires Resolve 21 Studio; check the Extras Download Manager.",
+                state={"clip": self.name, "options": options},
+            )
+        return Clip(raw)
+
+    def analyze_for_intellisearch(
+        self,
+        *,
+        identify_faces: bool = False,
+        better_mode: bool = False,
+    ) -> bool:
+        """Run Intellisearch analysis on this clip (Resolve 21+, Studio).
+
+        Returns ``True`` if the required Extras packages are installed and
+        analysis succeeds, ``False`` otherwise (e.g. the AI IntelliSearch
+        package has not been downloaded).
+        """
+        analyze = requires_method(
+            self._raw,
+            "AnalyzeForIntellisearch",
+            feature="Intellisearch analysis",
+            error=errors.MediaError,
+            state={"clip": self.name},
+        )
+        return bool(analyze(identify_faces, better_mode))
+
+    def analyze_for_slate(self, marker_color: str) -> bool:
+        """Run AI Slate ID analysis on this clip (Resolve 21+, Studio).
+
+        ``marker_color`` is a Resolve marker color name (e.g. ``"Blue"``).
+        Returns ``True`` if the AI Slate ID Extra is installed and analysis
+        succeeds, ``False`` otherwise.
+        """
+        analyze = requires_method(
+            self._raw,
+            "AnalyzeForSlate",
+            feature="AI Slate ID analysis",
+            error=errors.MediaError,
+            state={"clip": self.name},
+        )
+        return bool(analyze(marker_color))
 
     # --- inspection -----------------------------------------------------
 
@@ -443,14 +569,110 @@ class Folder:
         """In collaboration mode, returns True if the folder needs refresh."""
         return bool(self._raw.GetIsFolderStale())
 
-    def transcribe(self, language: str = "auto") -> None:
-        """Bulk-transcribe every clip in the folder."""
-        if not self._raw.TranscribeAudio(language):
+    def transcribe(
+        self,
+        language: str = "auto",
+        *,
+        use_speaker_detection: bool | None = None,
+    ) -> None:
+        """Bulk-transcribe every clip in the folder (and nested folders).
+
+        See :meth:`Clip.transcribe` for notes on ``use_speaker_detection``
+        (Resolve 21+) and why ``language`` no longer reaches the API call.
+        """
+        if use_speaker_detection is not None:
+            transcribe = requires_method(
+                self._raw,
+                "TranscribeAudio",
+                feature="Speaker detection during transcription",
+                error=errors.MediaError,
+                state={"folder": self.name},
+            )
+            ok = transcribe(use_speaker_detection)
+        else:
+            ok = self._raw.TranscribeAudio()
+        if not ok:
             raise errors.MediaError(
                 f"Could not transcribe folder {self.name!r}.",
                 cause="Folder.TranscribeAudio returned False.",
-                state={"folder": self.name, "language": language},
+                state={"folder": self.name, "use_speaker_detection": use_speaker_detection},
             )
+
+    # --- AI / Studio (Resolve 21+) --------------------------------------
+
+    def classify_audio(self) -> None:
+        """Classify the audio of every clip in the folder (Resolve 21+, Studio)."""
+        classify = requires_method(
+            self._raw,
+            "PerformAudioClassification",
+            feature="Audio classification",
+            error=errors.MediaError,
+            state={"folder": self.name},
+        )
+        if not classify():
+            raise errors.MediaError(
+                f"Could not classify audio for folder {self.name!r}.",
+                cause="PerformAudioClassification returned False.",
+                fix="Requires Resolve 21 Studio; check the Extras Download Manager.",
+                state={"folder": self.name},
+            )
+
+    def clear_audio_classification(self) -> None:
+        """Clear audio classification across the folder (Resolve 21+)."""
+        clear = requires_method(
+            self._raw,
+            "ClearAudioClassification",
+            feature="Audio classification",
+            error=errors.MediaError,
+            state={"folder": self.name},
+        )
+        clear()
+
+    def remove_motion_blur(
+        self,
+        options: dict[str, Any] | None = None,
+    ) -> list[tuple[Clip, Clip]]:
+        """Apply AI motion deblur to every clip in the folder (Resolve 21+, Studio).
+
+        Returns a list of ``(original, deblurred)`` clip pairs. See
+        :meth:`Clip.remove_motion_blur` for the ``options`` dict.
+        """
+        deblur = requires_method(
+            self._raw,
+            "RemoveMotionBlur",
+            feature="AI motion deblur",
+            error=errors.MediaError,
+            state={"folder": self.name},
+        )
+        pairs = deblur(options or {}) or []
+        return [(Clip(orig), Clip(new)) for orig, new in pairs]
+
+    def analyze_for_intellisearch(
+        self,
+        *,
+        identify_faces: bool = False,
+        better_mode: bool = False,
+    ) -> bool:
+        """Run Intellisearch analysis on every clip in the folder (Resolve 21+)."""
+        analyze = requires_method(
+            self._raw,
+            "AnalyzeForIntellisearch",
+            feature="Intellisearch analysis",
+            error=errors.MediaError,
+            state={"folder": self.name},
+        )
+        return bool(analyze(identify_faces, better_mode))
+
+    def analyze_for_slate(self, marker_color: str) -> bool:
+        """Run AI Slate ID analysis on every clip in the folder (Resolve 21+)."""
+        analyze = requires_method(
+            self._raw,
+            "AnalyzeForSlate",
+            feature="AI Slate ID analysis",
+            error=errors.MediaError,
+            state={"folder": self.name},
+        )
+        return bool(analyze(marker_color))
 
     def export(self, file_path: str) -> None:
         """Export the folder as a ``.drb``."""

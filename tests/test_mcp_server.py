@@ -60,6 +60,13 @@ def test_registry_lists_expected_tools() -> None:
         "snapshot_save",
         "lint",
         "eval",
+        "media_transcribe",
+        "media_classify_audio",
+        "media_deblur",
+        "media_analyze",
+        "project_reset_intellisearch",
+        "project_generate_speech",
+        "disable_background_tasks",
     }
     assert must.issubset(names), f"missing: {must - names}"
 

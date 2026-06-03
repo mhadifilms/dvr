@@ -129,6 +129,14 @@ def page(
         output.emit({"page": r.app.page}, fmt=ctx.obj["format"])
 
 
+@app.command("disable-background-tasks")
+def disable_background_tasks(ctx: typer.Context) -> None:
+    """Disable background tasks for this Resolve session (Resolve 21+; no-op on older builds)."""
+    with _resolve_session(ctx) as r:
+        r.app.disable_background_tasks()
+        output.emit({"background_tasks_disabled": True}, fmt=ctx.obj["format"])
+
+
 # ---------------------------------------------------------------------------
 # Sub-apps
 # ---------------------------------------------------------------------------

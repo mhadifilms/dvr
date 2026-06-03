@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` method shadow
 
 from . import errors
+from ._wrap import requires_method
 
 if TYPE_CHECKING:
     from .gallery import Gallery
@@ -190,6 +191,57 @@ class Project:
                 ),
                 state={"requested": name},
             )
+
+    # --- AI / Studio (Resolve 21+) ----------------------------------------
+
+    def reset_intellisearch_analysis(self) -> None:
+        """Clear all Intellisearch analysis data for the project (Resolve 21+).
+
+        Requires DaVinci Resolve Studio.
+        """
+        reset = requires_method(
+            self._raw,
+            "ResetIntellisearchAnalysis",
+            feature="Intellisearch analysis",
+            error=errors.ProjectError,
+            state={"project": self.name},
+        )
+        if not reset():
+            raise errors.ProjectError(
+                "Could not reset Intellisearch analysis.",
+                cause="ResetIntellisearchAnalysis returned False.",
+                fix="Requires Resolve 21 Studio with the AI IntelliSearch Extra installed.",
+                state={"project": self.name},
+            )
+
+    def generate_speech(self, settings: dict[str, Any], timecode: str) -> Any:
+        """Generate a text-to-speech audio clip and return it (Resolve 21+, Studio).
+
+        ``settings`` maps to Resolve's ``speechGenerationSettings`` dict
+        (see the "Speech Generation Settings" docs section: ``TextInput``,
+        ``VoiceModel``, ``Speed``, ``Pitch``, ``Filename``,
+        ``AddToTimeline``, ``AudioTrack`` ...). When ``AddToTimeline`` is
+        True the clip is placed at ``timecode``. Returns the generated
+        :class:`dvr.media.Clip` (Resolve's ``MediaPoolItem``).
+        """
+        from .media import Clip
+
+        generate = requires_method(
+            self._raw,
+            "GenerateSpeech",
+            feature="AI speech generation",
+            error=errors.ProjectError,
+            state={"project": self.name, "timecode": timecode},
+        )
+        raw = generate(settings, timecode)
+        if not raw:
+            raise errors.ProjectError(
+                "Could not generate speech.",
+                cause="GenerateSpeech returned a falsy value.",
+                fix="Requires Resolve 21 Studio with the AI Speech Generator Extra installed.",
+                state={"project": self.name, "timecode": timecode},
+            )
+        return Clip(raw)
 
     # --- save / close -----------------------------------------------------
 
