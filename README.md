@@ -10,9 +10,11 @@
 [![Docs](https://github.com/mhadifilms/dvr/actions/workflows/docs.yml/badge.svg)](https://mhadifilms.github.io/dvr/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**The missing CLI and Python library for DaVinci Resolve.**
+**The missing CLI, Python library, and MCP server for DaVinci Resolve.**
 
 Declarative. Scriptable. LLM-friendly. No more silent `None` returns.
+
+`dvr` is a command-line tool, a typed Python library, and a [Model Context Protocol (MCP)](docs/mcp.md) server for automating **DaVinci Resolve** — editing, color grading, rendering, and delivery. It turns Resolve's fragile scripting API into clean, idempotent operations with structured JSON output, so humans, scripts, and AI agents (Claude, Cursor, and any MCP-compatible client) can drive Resolve reliably.
 
 ```bash
 pip install dvr
@@ -35,7 +37,7 @@ $ dvr timeline inspect
 
 ---
 
-## Why this exists
+## Why dvr exists
 
 DaVinci Resolve has a powerful Python scripting API. It's also painful:
 
@@ -48,7 +50,7 @@ DaVinci Resolve has a powerful Python scripting API. It's also painful:
 
 `dvr` wraps the API with a clean object model, idempotent operations, decoded errors, structured I/O, and a CLI that's pleasant for humans *and* parseable by LLM agents.
 
-## Three ways to use it
+## Three ways to use it: Python library, CLI, and MCP server
 
 ### 1. Python library
 
@@ -93,7 +95,7 @@ $ dvr mcp tools              # introspect the 39+ typed tools
 
 LLM agents call typed tools directly — no shell parsing, no silent failures. Tools that don't need a live Resolve (`version`, `doctor`, static `schema` topics) work even when Resolve isn't running, so first-time setup is instant. See [docs/mcp.md](docs/mcp.md).
 
-## Five things that make it fundamentally better than the raw API
+## Five things that make it fundamentally better than the raw DaVinci Resolve scripting API
 
 1. **One `inspect()` call replaces ten API calls.** Full structured state in a single round-trip.
 2. **Idempotent operations.** `project.ensure()`, `timeline.ensure()`, `bin.ensure()` — re-run anything safely.
@@ -146,6 +148,23 @@ brew install mhadifilms/tap/dvr
 `dvr` auto-discovers Resolve's scripting library on each platform. No environment variables needed for typical installs.
 
 > The free edition of DaVinci Resolve cannot be scripted from outside the app (Blackmagic restricted this in v19.1+). If you're evaluating `dvr` without Studio, use `--dry-run` flags on `apply` and explore the schema/inspection commands — they work without a live connection.
+
+## FAQ
+
+**How do I script DaVinci Resolve from Python?**
+Install `dvr` (`pip install dvr`) and use the typed `from dvr import Resolve` library, or run the `dvr` CLI. It auto-connects to Resolve, handles the macOS LAN-IP quirk, and returns structured objects instead of `None`.
+
+**Is there a DaVinci Resolve MCP server?**
+Yes. `dvr mcp serve` runs a Model Context Protocol (MCP) server that exposes 39+ typed tools, so LLM agents can automate DaVinci Resolve without parsing shell output. See [docs/mcp.md](docs/mcp.md).
+
+**Does dvr work with Claude and Cursor?**
+Yes. Run `dvr mcp install-claude` or `dvr mcp install-cursor` for one-shot setup. Any MCP-compatible AI agent or LLM client can drive Resolve through the same typed tools.
+
+**Can I automate DaVinci Resolve rendering and exports from the command line?**
+Yes. `dvr render submit --preset delivery --wait --stream` renders from the CLI with streaming JSON progress, and `dvr` exports EDL / AAF / FCPXML / OTIO interchange formats.
+
+**How is dvr different from the raw DaVinci Resolve scripting API?**
+It adds a clean object model, idempotent operations (`ensure`), decoded errors with `cause`/`fix`/`state`, declarative YAML specs (`dvr apply`), a persistent connection daemon, and an MCP server — replacing dozens of fragile `Get*()` calls that silently return `None`.
 
 ## Status
 

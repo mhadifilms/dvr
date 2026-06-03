@@ -4,8 +4,10 @@
   <img src="assets/logo.png" alt="dvr logo" width="160">
 </p>
 
-**The missing CLI and Python library for DaVinci Resolve.**
+**The missing CLI, Python library, and MCP server for DaVinci Resolve.**
 Declarative. Scriptable. LLM-friendly. No more silent `None` returns.
+
+`dvr` is a command-line tool, a typed Python library, and a [Model Context Protocol (MCP)](mcp.md) server for automating **DaVinci Resolve** — editing, color grading, rendering, and delivery. Humans, scripts, and AI agents (Claude, Cursor, and any MCP-compatible client) drive Resolve through one clean, structured interface.
 
 === "Homebrew"
     ```bash

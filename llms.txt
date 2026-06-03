@@ -1,0 +1,27 @@
+# dvr
+
+> dvr is the missing CLI, Python library, and Model Context Protocol (MCP) server for DaVinci Resolve. It automates editing, color grading, rendering, and delivery by wrapping Resolve's fragile scripting API in a clean object model with idempotent operations, decoded errors, declarative YAML specs, and structured JSON output — so humans, scripts, and AI agents (Claude, Cursor, and any MCP-compatible client) can drive Resolve reliably.
+
+Key facts:
+- Install: `pip install dvr` (also Homebrew, pipx, uv)
+- Three interfaces: Python library (`from dvr import Resolve`), `dvr` CLI, and an MCP server (`dvr mcp serve`)
+- MCP setup: `dvr mcp install-claude`, `dvr mcp install-cursor`; introspect tools with `dvr mcp tools`
+- Requires DaVinci Resolve Studio 18.5+ (external scripting is Studio-only); Python 3.10+; macOS, Windows, Linux
+- License: MIT. Independent project, not affiliated with Blackmagic Design.
+
+## Docs
+
+- [README](https://github.com/mhadifilms/dvr/blob/main/README.md): Overview, install, and the three ways to use dvr (CLI, Python, MCP)
+- [Getting started](https://github.com/mhadifilms/dvr/blob/main/docs/getting-started.md): First connection and core workflows
+- [CLI reference](https://github.com/mhadifilms/dvr/blob/main/docs/cli.md): All `dvr` commands and flags
+- [Python library](https://github.com/mhadifilms/dvr/blob/main/docs/library.md): The typed `Resolve` object model
+- [MCP server](https://github.com/mhadifilms/dvr/blob/main/docs/mcp.md): MCP tools for LLM agents, client setup for Claude and Cursor
+- [Declarative specs](https://github.com/mhadifilms/dvr/blob/main/docs/spec.md): `dvr apply` reconciles Resolve state from YAML
+- [Daemon](https://github.com/mhadifilms/dvr/blob/main/docs/daemon.md): Persistent connection for fast sequential commands
+- [Errors and diagnostics](https://github.com/mhadifilms/dvr/blob/main/docs/concepts/errors.md): Structured `cause`/`fix`/`state` errors
+
+## Concepts
+
+- [inspect()](https://github.com/mhadifilms/dvr/blob/main/docs/concepts/inspect.md): One call returns full structured state
+- [Idempotency](https://github.com/mhadifilms/dvr/blob/main/docs/concepts/idempotency.md): `ensure` operations are safe to re-run
+- [Cookbook](https://github.com/mhadifilms/dvr/blob/main/docs/cookbook.md): Task-oriented recipes

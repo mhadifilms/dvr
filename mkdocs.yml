@@ -1,5 +1,5 @@
 site_name: dvr
-site_description: The missing CLI and Python library for DaVinci Resolve. Declarative, scriptable, LLM-friendly.
+site_description: DaVinci Resolve CLI, Python library, and MCP server. Automate editing, color, and rendering with LLM-friendly tools for AI agents (Claude, Cursor). Declarative, scriptable, structured JSON output.
 site_url: https://mhadifilms.github.io/dvr/
 repo_url: https://github.com/mhadifilms/dvr
 repo_name: mhadifilms/dvr
