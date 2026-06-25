@@ -6,6 +6,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-06-25
+
+Editing controls expansion. Additive across the library, CLI, MCP server,
+and declarative specs.
+
+### Added
+
+- First-class wrappers for Resolve's documented static
+  `TimelineItem.SetProperty` editing surface:
+  - Library: `TimelineItem.set_properties()`, `TimelineItem.reset_properties()`,
+    `TimelineItem.edit`, and batch helpers on `ItemQuery` for transform,
+    crop, composite, retime, and scaling controls.
+  - CLI: `dvr clip transform`, `dvr clip crop`, `dvr clip composite`,
+    `dvr clip retime`, `dvr clip reset`, and `dvr clip capabilities`.
+  - MCP tools: `clip_set_properties`, `clip_transform`, `clip_crop`,
+    `clip_reset`, and `clip_capabilities`.
+  - Declarative specs: timeline-level `clip_properties` / `clips` operations
+    with stable selectors and idempotent property application.
+- Expanded `dvr schema clip-properties` to match Resolve's documented
+  transform, crop, dynamic zoom, composite, retime, scaling, and resize-filter
+  property surface, including enum constants, aliases, defaults, and capability
+  metadata.
+
+### Changed
+
+- `dvr clip set` now normalizes friendly aliases and enum names before calling
+  Resolve's `SetProperty`, while preserving raw property-key usage.
+
 ## [1.2.0] - 2026-06-03
 
 DaVinci Resolve 21 support. Additive across the library, CLI, and MCP
