@@ -71,7 +71,7 @@ def _read_user_plugins() -> list[dict[str, str]]:
     if not path.exists():
         return []
     try:
-        import tomllib  # type: ignore[unused-ignore, import-not-found]
+        import tomllib  # type: ignore[unused-ignore, import-not-found, import-untyped]
     except ImportError:  # pragma: no cover — Python <3.11 fallback
         import tomli as tomllib  # type: ignore[no-redef, unused-ignore, import-not-found]
     try:

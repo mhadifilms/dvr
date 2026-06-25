@@ -51,7 +51,27 @@ timelines:                       # optional — timelines to ensure
         note: <string>
         duration: <int>
         custom_data: <string>
+    clip_properties:             # optional — static TimelineItem.SetProperty controls
+      - selector:
+          track_type: video
+          track_index: 2
+          name_contains: "plate"
+        properties:
+          crop_top: 120
+          crop_bottom: 120
+          blend: multiply
+          opacity: 80
 ```
+
+`clip_properties` entries select timeline items, normalize friendly keys
+through `dvr.schema`, and apply only values that differ from the current
+`GetProperty` value. Selectors support `track_type`, `track_index`, `name`,
+`name_contains`, `start`, `end`, `duration_lt`, and `duration_gt`.
+
+Supported properties are Resolve's documented static timeline-item controls:
+transform, crop, dynamic zoom ease, composite, retime quality, scaling, and
+resize filters. General keyframe animation and edit-page transitions are
+not exposed by Resolve's scripting API.
 
 ## Color presets
 

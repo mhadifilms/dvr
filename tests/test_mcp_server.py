@@ -46,6 +46,11 @@ def test_registry_lists_expected_tools() -> None:
         "timeline_clear",
         "marker_add",
         "clip_where",
+        "clip_set_properties",
+        "clip_transform",
+        "clip_crop",
+        "clip_reset",
+        "clip_capabilities",
         "render_queue",
         "render_submit",
         "media_inspect",
@@ -157,6 +162,12 @@ def test_dispatch_schema_static_topic_does_not_connect() -> None:
     payload = _dispatch("schema", {"topic": "clip-properties"})
     assert "Pan" in payload
     assert payload["Pan"]["type"] == "float"
+
+
+def test_dispatch_clip_capabilities_does_not_connect() -> None:
+    payload = _dispatch("clip_capabilities", {})
+    assert payload["static_properties"]["supported"] is True
+    assert payload["transitions"]["supported"] is False
 
 
 def test_dispatch_schema_unknown_topic_returns_error() -> None:

@@ -17,6 +17,112 @@ def test_parse_spec_rejects_project_mapping() -> None:
     assert ctx.value.state["project"] == {"name": "Bad"}
 
 
+def test_parse_spec_accepts_clip_property_operations() -> None:
+    parsed = spec.parse_spec(
+        {
+            "project": "P",
+            "timelines": [
+                {
+                    "name": "Edit",
+                    "clips": [
+                        {
+                            "selector": {"track_type": "video", "track_index": 2},
+                            "properties": {"crop_top": 12, "blend": "multiply"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    op = parsed.timelines[0].clip_properties[0]
+    assert op.selector == {"track_type": "video", "track_index": 2}
+    assert op.properties == {"CropTop": 12.0, "CompositeMode": 4}
+
+
+def test_spec_apply_sets_clip_properties_idempotently() -> None:
+    calls: list[tuple[str, object]] = []
+
+    class _Item:
+        name = "shot"
+        track_type = "video"
+        track_index = 2
+        start = 0
+        end = 24
+        duration = 24
+
+        def __init__(self) -> None:
+            self.values = {"CropTop": 0.0, "CompositeMode": 4}
+
+        def get_property(self, key: str) -> object:
+            return self.values.get(key)
+
+        def set_property(self, key: str, value: object) -> None:
+            calls.append((key, value))
+            self.values[key] = value
+
+    item = _Item()
+
+    class _Timeline:
+        name = "Edit"
+
+        def track(self, track_type: str, index: int) -> object:
+            assert (track_type, index) == ("video", 2)
+            return type("_Track", (), {"items": [item]})()
+
+        def items(self, track_type: str | None = None) -> list[_Item]:
+            return [item]
+
+        def set_setting(self, key: str, value: str) -> None:
+            raise AssertionError("unexpected setting")
+
+        def markers(self) -> dict[int, dict[str, object]]:
+            return {}
+
+    class _TimelineNamespace:
+        def ensure(self, name: str) -> _Timeline:
+            assert name == "Edit"
+            return _Timeline()
+
+    class _Project:
+        timeline = _TimelineNamespace()
+
+        def set_setting(self, key: str, value: str) -> None:
+            raise AssertionError("unexpected project setting")
+
+    class _ProjectNamespace:
+        def list(self) -> list[str]:
+            return ["P"]
+
+        def ensure(self, name: str) -> _Project:
+            assert name == "P"
+            return _Project()
+
+    class _Resolve:
+        project = _ProjectNamespace()
+
+    parsed = spec.parse_spec(
+        {
+            "project": "P",
+            "timelines": [
+                {
+                    "name": "Edit",
+                    "clip_properties": [
+                        {
+                            "selector": {"track_type": "video", "track_index": 2},
+                            "properties": {"crop_top": 12, "blend": "multiply"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    actions = spec.apply(parsed, _Resolve())  # type: ignore[arg-type]
+
+    assert any("clip-properties" in action.target for action in actions)
+    assert calls == [("CropTop", 12.0)]
+
+
 def test_apply_continue_on_error_applies_remaining_settings() -> None:
     applied: dict[str, str] = {}
 

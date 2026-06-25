@@ -20,6 +20,7 @@ from dvr import errors
 from dvr.media import Clip, MediaPool
 from dvr.project import Project, Settings
 from dvr.timeline import (
+    ItemQuery,
     Timeline,
     TimelineItem,
     Track,
@@ -290,6 +291,41 @@ def test_timelineitem_set_property_returns_bool():
     assert item_bad.set_property("k", "v", raise_on_failure=False) is False
     with pytest.raises(errors.ClipError):
         item_bad.set_property("k", "v")
+
+
+def test_timelineitem_set_properties_normalizes_aliases():
+    raw = MockNode("Item", {"GetName": "ok", "SetProperty": True})
+    item = TimelineItem(raw, track_type="video", track_index=1)
+    result = item.set_properties({"crop_top": "12", "blend": "multiply", "flip_x": "yes"})
+    assert result == {"CropTop": True, "CompositeMode": True, "FlipX": True}
+    assert ("SetProperty", ("CropTop", 12.0), {}) in raw.calls
+    assert ("SetProperty", ("CompositeMode", 4), {}) in raw.calls
+    assert ("SetProperty", ("FlipX", True), {}) in raw.calls
+
+
+def test_timelineitem_edit_transform_sets_zoom_pair():
+    raw = MockNode("Item", {"GetName": "ok", "SetProperty": True})
+    item = TimelineItem(raw, track_type="video", track_index=1)
+    returned = item.edit.transform(pan=10, zoom=1.25, rotation=5)
+    assert returned is item
+    assert ("SetProperty", ("Pan", 10.0), {}) in raw.calls
+    assert ("SetProperty", ("ZoomX", 1.25), {}) in raw.calls
+    assert ("SetProperty", ("ZoomY", 1.25), {}) in raw.calls
+    assert ("SetProperty", ("RotationAngle", 5.0), {}) in raw.calls
+
+
+def test_itemquery_batch_set_properties():
+    raw_a = MockNode("A", {"GetName": "a", "SetProperty": True})
+    raw_b = MockNode("B", {"GetName": "b", "SetProperty": True})
+    query = ItemQuery(
+        [
+            TimelineItem(raw_a, track_type="video", track_index=1),
+            TimelineItem(raw_b, track_type="video", track_index=1),
+        ]
+    )
+    assert query.crop(top=10) == 2
+    assert ("SetProperty", ("CropTop", 10.0), {}) in raw_a.calls
+    assert ("SetProperty", ("CropTop", 10.0), {}) in raw_b.calls
 
 
 def test_clip_set_property_returns_bool():

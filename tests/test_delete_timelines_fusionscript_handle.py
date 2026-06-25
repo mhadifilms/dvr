@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from dvr.media import MediaPool
 
 
@@ -21,7 +19,7 @@ def _fake_proxy(name: str = "T1"):
         def __init__(self, name: str) -> None:
             self._name = name
 
-        def GetName(self) -> str:  # noqa: N802 — fusionscript surface
+        def GetName(self) -> str:
             return self._name
 
     p = _Proxy(name)

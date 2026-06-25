@@ -7,10 +7,6 @@ Resolve when the local one wasn't running. Now gated behind
 """
 from __future__ import annotations
 
-import os
-import sys
-from unittest.mock import patch
-
 import pytest
 
 import dvr.connection as connection

@@ -85,6 +85,7 @@ dvr mcp tools --detail  # full descriptions and JSON schemas
 | `timeline_append` | Append media to explicit timeline tracks (`track_index`, `record_frame`, source in/out). Non-default tracks require explicit `record_frame` per item. |
 | `marker_add` | Add a marker at a frame on a timeline. |
 | `clip_where` | Filter timeline items by safe declarative fields (duration, name, track type). |
+| `clip_set_properties` / `clip_transform` / `clip_crop` / `clip_reset` / `clip_capabilities` | Set documented static timeline-item controls and discover unsupported transition/keyframe capabilities without using `eval`. |
 | `media_inspect` / `media_bins` / `media_ls` / `media_import` | Media pool. |
 | `media_scan` | Scan a filesystem folder for importable video/audio files, skipping hidden AppleDouble files by default. |
 | `media_bin_ensure` / `media_bin_delete` / `media_move` | Create/delete nested bins and move media-pool clips without breaking timelines. Slash paths like `Picture/Plates` are accepted consistently. |

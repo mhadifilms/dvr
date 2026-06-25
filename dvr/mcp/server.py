@@ -517,45 +517,127 @@ def _h_marker_add(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _timeline_for_args(ctx: _Context, args: dict[str, Any]) -> Any:
+    r = ctx.resolve()
+    name = args.get("timeline")
+    tl = r.timeline.get(name) if name else r.timeline.current
+    if tl is None:
+        raise errors.TimelineError("No timeline is currently loaded.")
+    return tl
+
+
+def _select_timeline_items(ctx: _Context, args: dict[str, Any]) -> tuple[Any, list[Any]]:
+    tl = _timeline_for_args(ctx, args)
+    track_type = args.get("track_type")
+    track_index = args.get("track_index")
+    duration_lt = args.get("duration_lt")
+    duration_gt = args.get("duration_gt")
+    name_exact = args.get("name")
+    name_contains = args.get("name_contains")
+
+    items: list[Any] = []
+    if track_type and track_index is not None:
+        items.extend(tl.track(track_type, int(track_index)).items)
+    elif track_type:
+        items.extend(tl.items(track_type))
+    else:
+        items.extend(tl.items())
+
+    def matches(item: Any) -> bool:
+        if track_index is not None and int(item.track_index) != int(track_index):
+            return False
+        if duration_lt is not None and not item.duration < int(duration_lt):
+            return False
+        if duration_gt is not None and not item.duration > int(duration_gt):
+            return False
+        if name_exact is not None and item.name != name_exact:
+            return False
+        return not (name_contains is not None and name_contains not in (item.name or ""))
+
+    return tl, [it for it in items if matches(it)]
+
+
 def _h_clip_where(ctx: _Context, args: dict[str, Any]) -> list[dict[str, Any]]:
     """Filter clips on a timeline using safe predicate fields.
 
     The MCP boundary deliberately does *not* expose a Python lambda --
     instead, callers pick from a small, declarative DSL of safe filters.
     """
-    r = ctx.resolve()
-    name = args.get("timeline")
-    tl = r.timeline.get(name) if name else r.timeline.current
-    if tl is None:
-        raise errors.TimelineError("No timeline is currently loaded.")
-
-    track_type: str = args.get("track_type", "video")
-    duration_lt = args.get("duration_lt")
-    duration_gt = args.get("duration_gt")
-    name_contains = args.get("name_contains")
-
-    items: list[Any] = []
-    for tr in tl.tracks(track_type):
-        items.extend(tr.items)
-
-    def matches(item: Any) -> bool:
-        if duration_lt is not None and not item.duration < int(duration_lt):
-            return False
-        if duration_gt is not None and not item.duration > int(duration_gt):
-            return False
-        return not (name_contains is not None and name_contains not in (item.name or ""))
-
-    matched = [it for it in items if matches(it)]
+    args = {"track_type": "video", **args}
+    _, matched = _select_timeline_items(ctx, args)
     return [
         {
             "name": it.name,
-            "track_type": track_type,
+            "track_type": it.track_type,
+            "track_index": it.track_index,
             "duration_frames": it.duration,
             "start_frame": it.start,
             "end_frame": it.end,
         }
         for it in matched
     ]
+
+
+def _h_clip_set_properties(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    from .. import schema as schema_mod
+
+    tl, items = _select_timeline_items(ctx, args)
+    normalized = schema_mod.normalize_clip_properties(dict(args["properties"]))
+    if bool(args.get("dry_run", False)):
+        return {
+            "timeline": tl.name,
+            "would_update": [it.name for it in items],
+            "count": len(items),
+            "properties": normalized,
+        }
+    for item in items:
+        item.set_properties(normalized)
+    return {"timeline": tl.name, "updated": len(items), "properties": normalized}
+
+
+def _h_clip_transform(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    props = {
+        key: args[key]
+        for key in (
+            "pan",
+            "tilt",
+            "zoom",
+            "zoom_x",
+            "zoom_y",
+            "rotation",
+            "anchor_x",
+            "anchor_y",
+            "pitch",
+            "yaw",
+            "flip_x",
+            "flip_y",
+        )
+        if key in args
+    }
+    return _h_clip_set_properties(ctx, {**args, "properties": props})
+
+
+def _h_clip_crop(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    props = {
+        key: args[key]
+        for key in ("crop_left", "crop_right", "crop_top", "crop_bottom", "crop_softness", "crop_retain")
+        if key in args
+    }
+    return _h_clip_set_properties(ctx, {**args, "properties": props})
+
+
+def _h_clip_reset(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    from .. import schema as schema_mod
+
+    groups = args.get("groups")
+    props = schema_mod.reset_clip_properties(groups)
+    return _h_clip_set_properties(ctx, {**args, "properties": props})
+
+
+def _h_clip_capabilities(_ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
+    from .. import schema as schema_mod
+
+    return schema_mod.clip_property_capabilities()
 
 
 def _h_render_queue(ctx: _Context, _args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1020,9 +1102,11 @@ def _build_registry() -> list[_ToolSpec]:
             name="schema",
             description=(
                 "Discoverable catalog of valid setting keys, codecs, properties. "
-                "Topics: clip-properties, settings, export-formats, color-presets, "
-                "render-formats, render-codecs, render-presets. Live topics "
-                "(render-*) require an active Resolve connection; static topics do not."
+                "Topics include clip-properties, clip-property-aliases, "
+                "clip-property-defaults, clip-capabilities, settings, export-formats, "
+                "color-presets, render-formats, render-codecs, render-presets. "
+                "Live topics (render-*) require an active Resolve connection; "
+                "static topics do not."
             ),
             schema=_schema(
                 {
@@ -1030,6 +1114,9 @@ def _build_registry() -> list[_ToolSpec]:
                         "type": "string",
                         "enum": [
                             "clip-properties",
+                            "clip-property-aliases",
+                            "clip-property-defaults",
+                            "clip-capabilities",
                             "settings",
                             "export-formats",
                             "color-presets",
@@ -1235,6 +1322,112 @@ def _build_registry() -> list[_ToolSpec]:
                 }
             ),
             handler=_h_clip_where,
+        ),
+        _ToolSpec(
+            name="clip_set_properties",
+            description=(
+                "Set documented TimelineItem properties on clips selected by safe filters. "
+                "Accepts friendly keys like crop_top, zoom, blend, and enum names."
+            ),
+            schema=_schema(
+                {
+                    "properties": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": "TimelineItem SetProperty keys or friendly aliases.",
+                    },
+                    "timeline": {"type": "string"},
+                    "track_type": {"type": "string", "enum": ["video", "audio", "subtitle"]},
+                    "track_index": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "name_contains": {"type": "string"},
+                    "duration_lt": {"type": "integer"},
+                    "duration_gt": {"type": "integer"},
+                    "dry_run": {"type": "boolean", "default": False},
+                },
+                required=["properties"],
+            ),
+            handler=_h_clip_set_properties,
+        ),
+        _ToolSpec(
+            name="clip_transform",
+            description="Set transform properties on selected timeline clips.",
+            schema=_schema(
+                {
+                    "pan": {"type": "number"},
+                    "tilt": {"type": "number"},
+                    "zoom": {"type": "number", "description": "Sets ZoomX and ZoomY together."},
+                    "zoom_x": {"type": "number"},
+                    "zoom_y": {"type": "number"},
+                    "rotation": {"type": "number"},
+                    "anchor_x": {"type": "number"},
+                    "anchor_y": {"type": "number"},
+                    "pitch": {"type": "number"},
+                    "yaw": {"type": "number"},
+                    "flip_x": {"type": "boolean"},
+                    "flip_y": {"type": "boolean"},
+                    "timeline": {"type": "string"},
+                    "track_type": {"type": "string", "enum": ["video", "audio", "subtitle"]},
+                    "track_index": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "name_contains": {"type": "string"},
+                    "duration_lt": {"type": "integer"},
+                    "duration_gt": {"type": "integer"},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_clip_transform,
+        ),
+        _ToolSpec(
+            name="clip_crop",
+            description="Set crop properties on selected timeline clips.",
+            schema=_schema(
+                {
+                    "crop_left": {"type": "number"},
+                    "crop_right": {"type": "number"},
+                    "crop_top": {"type": "number"},
+                    "crop_bottom": {"type": "number"},
+                    "crop_softness": {"type": "number"},
+                    "crop_retain": {"type": "boolean"},
+                    "timeline": {"type": "string"},
+                    "track_type": {"type": "string", "enum": ["video", "audio", "subtitle"]},
+                    "track_index": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "name_contains": {"type": "string"},
+                    "duration_lt": {"type": "integer"},
+                    "duration_gt": {"type": "integer"},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_clip_crop,
+        ),
+        _ToolSpec(
+            name="clip_reset",
+            description=(
+                "Reset documented clip editing property groups. Groups include transform, "
+                "crop, composite, retime, scaling, and dynamic_zoom."
+            ),
+            schema=_schema(
+                {
+                    "groups": {"type": "array", "items": {"type": "string"}},
+                    "timeline": {"type": "string"},
+                    "track_type": {"type": "string", "enum": ["video", "audio", "subtitle"]},
+                    "track_index": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "name_contains": {"type": "string"},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_clip_reset,
+        ),
+        _ToolSpec(
+            name="clip_capabilities",
+            description=(
+                "Return what Resolve exposes for timeline-item editing, including unsupported "
+                "transition/keyframe capabilities."
+            ),
+            handler=_h_clip_capabilities,
+            needs_resolve=False,
         ),
         # ---- render ----------------------------------------------------
         _ToolSpec(

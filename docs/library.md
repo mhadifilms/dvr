@@ -52,12 +52,24 @@ Within a clip:
 clip = tl.clips("video").first()
 clip.inspect()                                 # full state
 clip.set_property("Pan", 0.25)                 # transform/composite/retime
+clip.set_properties({"crop_top": 120, "blend": "multiply"})
+clip.edit.transform(pan=40, zoom=1.1, rotation=2)
+clip.edit.crop(top=120, bottom=120, retain=True)
+tl.clips("video").where(lambda c: c.track_index == 2).crop(top=80, bottom=80)
 clip.color.set_cdl(slope=(1, 1, 1, 0.95))      # color page operations
 clip.color.export_lut("/Volumes/luts/grade.cube", size=33)
 clip.fusion.add()                              # add a Fusion comp
 clip.takes.add(asset)                          # alternate takes
 clip.replace("/Volumes/new_source.mov")        # relink, preserves grades
 ```
+
+`set_properties()` accepts documented Resolve `TimelineItem.SetProperty`
+keys plus DVR aliases (`crop_top`, `blend`, `zoom`, `resize_filter`, etc.)
+and coerces enum names to Resolve's integer constants. It covers static
+transform, crop, composite, dynamic zoom ease, retime quality, scaling, and
+resize filter controls. Resolve does not expose reliable APIs for edit-page
+transitions or general transform keyframes, so DVR reports those as
+unsupported capabilities instead of fabricating them.
 
 ## Idempotent context managers
 

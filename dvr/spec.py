@@ -164,11 +164,18 @@ SETTINGS_ORDER: tuple[str, ...] = (
 
 
 @dataclass
+class ClipOperationSpec:
+    selector: dict[str, Any] = field(default_factory=dict)
+    properties: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class TimelineSpec:
     name: str
     fps: float | None = None
     settings: dict[str, str] = field(default_factory=dict)
     markers: list[dict[str, Any]] = field(default_factory=list)
+    clip_properties: list[ClipOperationSpec] = field(default_factory=list)
 
 
 @dataclass
@@ -236,12 +243,14 @@ def parse_spec(data: dict[str, Any]) -> Spec:
                 "Each timeline entry requires a 'name' field.",
                 state={"entry": entry},
             )
+        clip_properties = _parse_clip_property_specs(entry)
         timelines.append(
             TimelineSpec(
                 name=str(entry["name"]),
                 fps=float(entry["fps"]) if "fps" in entry else None,
                 settings=dict(entry.get("settings", {}) or {}),
                 markers=list(entry.get("markers", []) or []),
+                clip_properties=clip_properties,
             )
         )
     color_preset = data.get("color_preset")
@@ -272,6 +281,43 @@ def parse_spec(data: dict[str, Any]) -> Spec:
         timelines=timelines,
         hooks=hooks,
     )
+
+
+def _parse_clip_property_specs(entry: dict[str, Any]) -> list[ClipOperationSpec]:
+    from . import schema as schema_mod
+
+    raw_ops = entry.get("clip_properties", entry.get("clips", [])) or []
+    if not isinstance(raw_ops, list):
+        raise errors.SpecError(
+            "Timeline clip property operations must be a list.",
+            state={"timeline": entry.get("name"), "clip_properties": raw_ops},
+        )
+    parsed: list[ClipOperationSpec] = []
+    for raw in raw_ops:
+        if not isinstance(raw, dict):
+            raise errors.SpecError(
+                "Each clip property operation must be an object.",
+                state={"timeline": entry.get("name"), "operation": raw},
+            )
+        props = raw.get("properties")
+        if not isinstance(props, dict) or not props:
+            raise errors.SpecError(
+                "Each clip property operation requires a non-empty properties mapping.",
+                state={"timeline": entry.get("name"), "operation": raw},
+            )
+        selector = raw.get("selector", raw.get("where", {})) or {}
+        if not isinstance(selector, dict):
+            raise errors.SpecError(
+                "Clip property selector must be an object.",
+                state={"timeline": entry.get("name"), "selector": selector},
+            )
+        parsed.append(
+            ClipOperationSpec(
+                selector=dict(selector),
+                properties=schema_mod.normalize_clip_properties(dict(props)),
+            )
+        )
+    return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -346,8 +392,62 @@ def plan(spec: Spec, resolve: Resolve) -> list[Action]:
                     payload={"timeline": tl.name, "marker": marker},
                 )
             )
+        for operation in tl.clip_properties:
+            actions.append(
+                Action(
+                    op="set",
+                    target=f"timeline:{tl.name}/clip-properties:{_selector_label(operation.selector)}",
+                    detail=", ".join(f"{k}={v}" for k, v in operation.properties.items()),
+                    payload={
+                        "timeline": tl.name,
+                        "selector": operation.selector,
+                        "properties": operation.properties,
+                    },
+                )
+            )
 
     return actions
+
+
+def _selector_label(selector: dict[str, Any]) -> str:
+    if not selector:
+        return "all"
+    return ",".join(f"{key}={value}" for key, value in sorted(selector.items()))
+
+
+def _select_timeline_items(timeline: Any, selector: dict[str, Any]) -> list[Any]:
+    track_type = selector.get("track_type")
+    track_index = selector.get("track_index")
+    if track_type and track_index is not None:
+        items = list(timeline.track(str(track_type), int(track_index)).items)
+    elif track_type:
+        items = list(timeline.items(str(track_type)))
+    else:
+        items = list(timeline.items())
+
+    def matches(item: Any) -> bool:
+        if track_index is not None and int(item.track_index) != int(track_index):
+            return False
+        if selector.get("name") is not None and item.name != selector["name"]:
+            return False
+        if selector.get("name_contains") is not None and selector["name_contains"] not in item.name:
+            return False
+        if selector.get("start") is not None and int(item.start) != int(selector["start"]):
+            return False
+        if selector.get("end") is not None and int(item.end) != int(selector["end"]):
+            return False
+        if selector.get("duration_lt") is not None and not item.duration < int(selector["duration_lt"]):
+            return False
+        return not (
+            selector.get("duration_gt") is not None
+            and not item.duration > int(selector["duration_gt"])
+        )
+
+    return [item for item in items if matches(item)]
+
+
+def _same_property_value(current: Any, desired: Any) -> bool:
+    return current == desired or str(current) == str(desired)
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +597,40 @@ def apply(
                         custom_data=str(marker.get("custom_data", "")),
                     ),
                 )
+        for operation in tl_spec.clip_properties:
+            action = Action(
+                op="set",
+                target=f"timeline:{tl_spec.name}/clip-properties:{_selector_label(operation.selector)}",
+                detail=", ".join(f"{k}={v}" for k, v in operation.properties.items()),
+                payload={
+                    "timeline": tl_spec.name,
+                    "selector": operation.selector,
+                    "properties": operation.properties,
+                },
+            )
+
+            def apply_clip_properties(
+                timeline: Any = tl,
+                op: ClipOperationSpec = operation,
+            ) -> None:
+                items = _select_timeline_items(timeline, op.selector)
+                if not items:
+                    raise errors.ClipError(
+                        "Clip property selector matched no timeline items.",
+                        fix="Check selector fields against `dvr clip ls` or `timeline.inspect()`.",
+                        state={"timeline": timeline.name, "selector": op.selector},
+                    )
+                for item in items:
+                    for key, value in op.properties.items():
+                        try:
+                            current = item.get_property(key)
+                        except Exception:
+                            current = None
+                        if _same_property_value(current, value):
+                            continue
+                        item.set_property(key, value)
+
+            apply_or_record(action, apply_clip_properties)
 
     if run_hooks:
         _run_hooks(spec.hooks, "after")
@@ -515,6 +649,7 @@ def apply(
 __all__ = [
     "COLOR_PRESETS",
     "Action",
+    "ClipOperationSpec",
     "Hook",
     "Spec",
     "TimelineSpec",

@@ -21,7 +21,7 @@ from typing import Annotated, Any
 
 import typer
 
-from ... import errors
+from ... import errors, schema
 from ...resolve import Resolve
 from ...timeline import TimelineItem
 from .. import output
@@ -191,29 +191,176 @@ def set_cmd(
     """
     r = _resolve(ctx)
     clips = _filter_clips(r, where, track)
-    pairs = []
+    pairs: dict[str, Any] = {}
     for raw in properties:
         if "=" not in raw:
             raise typer.BadParameter(f"Expected 'key=value', got {raw!r}.")
         key, value = raw.split("=", 1)
-        pairs.append((key.strip(), _coerce(value.strip())))
+        pairs[key.strip()] = _coerce(value.strip())
+    normalized = schema.normalize_clip_properties(pairs)
     if dry_run:
         output.emit(
             {
                 "would_update": [c.name for c in clips],
-                "properties": dict(pairs),
+                "properties": normalized,
                 "count": len(clips),
             },
             fmt=ctx.obj["format"],
         )
         return
     for clip in clips:
-        for key, value in pairs:
-            clip.set_property(key, value)
+        clip.set_properties(normalized)
     output.emit(
-        {"updated": len(clips), "properties": dict(pairs)},
+        {"updated": len(clips), "properties": normalized},
         fmt=ctx.obj["format"],
     )
+
+
+@app.command("transform")
+def transform_cmd(
+    ctx: typer.Context,
+    where: Annotated[str | None, typer.Option("--where", "-w", help="Filter expression.")] = None,
+    track: Annotated[str | None, typer.Option("--track", "-t", help="Track type filter.")] = None,
+    pan: Annotated[float | None, typer.Option("--pan", help="Horizontal position.")] = None,
+    tilt: Annotated[float | None, typer.Option("--tilt", help="Vertical position.")] = None,
+    zoom: Annotated[
+        float | None,
+        typer.Option("--zoom", help="Set ZoomX and ZoomY together."),
+    ] = None,
+    zoom_x: Annotated[float | None, typer.Option("--zoom-x", help="Horizontal zoom.")] = None,
+    zoom_y: Annotated[float | None, typer.Option("--zoom-y", help="Vertical zoom.")] = None,
+    rotation: Annotated[float | None, typer.Option("--rotation", help="Rotation angle.")] = None,
+    anchor_x: Annotated[float | None, typer.Option("--anchor-x", help="Anchor point X.")] = None,
+    anchor_y: Annotated[float | None, typer.Option("--anchor-y", help="Anchor point Y.")] = None,
+    pitch: Annotated[float | None, typer.Option("--pitch", help="3D pitch.")] = None,
+    yaw: Annotated[float | None, typer.Option("--yaw", help="3D yaw.")] = None,
+    flip_x: Annotated[bool | None, typer.Option("--flip-x/--no-flip-x", help="Flip horizontally.")] = None,
+    flip_y: Annotated[bool | None, typer.Option("--flip-y/--no-flip-y", help="Flip vertically.")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
+) -> None:
+    """Set transform properties on filtered timeline clips."""
+    props = _drop_none(
+        {
+            "pan": pan,
+            "tilt": tilt,
+            "zoom": zoom,
+            "zoom_x": zoom_x,
+            "zoom_y": zoom_y,
+            "rotation": rotation,
+            "anchor_x": anchor_x,
+            "anchor_y": anchor_y,
+            "pitch": pitch,
+            "yaw": yaw,
+            "flip_x": flip_x,
+            "flip_y": flip_y,
+        }
+    )
+    _apply_properties(ctx, props, where=where, track=track, dry_run=dry_run)
+
+
+@app.command("crop")
+def crop_cmd(
+    ctx: typer.Context,
+    where: Annotated[str | None, typer.Option("--where", "-w", help="Filter expression.")] = None,
+    track: Annotated[str | None, typer.Option("--track", "-t", help="Track type filter.")] = None,
+    left: Annotated[float | None, typer.Option("--left", help="Left crop in pixels.")] = None,
+    right: Annotated[float | None, typer.Option("--right", help="Right crop in pixels.")] = None,
+    top: Annotated[float | None, typer.Option("--top", help="Top crop in pixels.")] = None,
+    bottom: Annotated[float | None, typer.Option("--bottom", help="Bottom crop in pixels.")] = None,
+    softness: Annotated[float | None, typer.Option("--softness", help="Crop softness.")] = None,
+    retain: Annotated[
+        bool | None,
+        typer.Option("--retain/--no-retain", help="Retain image position."),
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
+) -> None:
+    """Set crop properties on filtered timeline clips."""
+    props = _drop_none(
+        {
+            "crop_left": left,
+            "crop_right": right,
+            "crop_top": top,
+            "crop_bottom": bottom,
+            "crop_softness": softness,
+            "crop_retain": retain,
+        }
+    )
+    _apply_properties(ctx, props, where=where, track=track, dry_run=dry_run)
+
+
+@app.command("composite")
+def composite_cmd(
+    ctx: typer.Context,
+    where: Annotated[str | None, typer.Option("--where", "-w", help="Filter expression.")] = None,
+    track: Annotated[str | None, typer.Option("--track", "-t", help="Track type filter.")] = None,
+    opacity: Annotated[float | None, typer.Option("--opacity", help="Opacity 0..100.")] = None,
+    mode: Annotated[
+        str | None,
+        typer.Option("--mode", help="Composite/blend mode name or integer constant."),
+    ] = None,
+    distortion: Annotated[float | None, typer.Option("--distortion", help="Distortion -1..1.")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
+) -> None:
+    """Set composite properties on filtered timeline clips."""
+    props = _drop_none({"opacity": opacity, "composite_mode": mode, "distortion": distortion})
+    _apply_properties(ctx, props, where=where, track=track, dry_run=dry_run)
+
+
+@app.command("retime")
+def retime_cmd(
+    ctx: typer.Context,
+    where: Annotated[str | None, typer.Option("--where", "-w", help="Filter expression.")] = None,
+    track: Annotated[str | None, typer.Option("--track", "-t", help="Track type filter.")] = None,
+    process: Annotated[
+        str | None,
+        typer.Option("--process", help="UseProject, Nearest, FrameBlend, or OpticalFlow."),
+    ] = None,
+    motion_estimation: Annotated[
+        str | None,
+        typer.Option("--motion-estimation", help="Motion estimation enum name or integer."),
+    ] = None,
+    scaling_mode: Annotated[
+        str | None,
+        typer.Option("--scaling", help="UseProject, Crop, Fit, Fill, or Stretch."),
+    ] = None,
+    resize_filter: Annotated[
+        str | None,
+        typer.Option("--resize-filter", help="Resize filter enum name or integer."),
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
+) -> None:
+    """Set retime/scaling quality properties on filtered clips."""
+    props = _drop_none(
+        {
+            "retime_process": process,
+            "motion_estimation": motion_estimation,
+            "scaling": scaling_mode,
+            "resize_filter": resize_filter,
+        }
+    )
+    _apply_properties(ctx, props, where=where, track=track, dry_run=dry_run)
+
+
+@app.command("reset")
+def reset_cmd(
+    ctx: typer.Context,
+    groups: Annotated[
+        list[str] | None,
+        typer.Argument(help="Property groups to reset: transform, crop, composite, retime, scaling."),
+    ] = None,
+    where: Annotated[str | None, typer.Option("--where", "-w", help="Filter expression.")] = None,
+    track: Annotated[str | None, typer.Option("--track", "-t", help="Track type filter.")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
+) -> None:
+    """Reset documented editing properties on filtered timeline clips."""
+    props = schema.reset_clip_properties(groups)
+    _apply_properties(ctx, props, where=where, track=track, dry_run=dry_run)
+
+
+@app.command("capabilities")
+def capabilities_cmd(ctx: typer.Context) -> None:
+    """Describe Resolve timeline-item editing capabilities exposed by dvr."""
+    output.emit(schema.clip_property_capabilities(), fmt=ctx.obj["format"])
 
 
 @app.command("mark")
@@ -282,3 +429,33 @@ def _coerce(value: str) -> Any:
     except ValueError:
         pass
     return value
+
+
+def _drop_none(properties: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in properties.items() if value is not None}
+
+
+def _apply_properties(
+    ctx: typer.Context,
+    properties: dict[str, Any],
+    *,
+    where: str | None,
+    track: str | None,
+    dry_run: bool,
+) -> None:
+    normalized = schema.normalize_clip_properties(properties)
+    r = _resolve(ctx)
+    clips = _filter_clips(r, where, track)
+    if dry_run:
+        output.emit(
+            {
+                "would_update": [c.name for c in clips],
+                "properties": normalized,
+                "count": len(clips),
+            },
+            fmt=ctx.obj["format"],
+        )
+        return
+    for clip in clips:
+        clip.set_properties(normalized)
+    output.emit({"updated": len(clips), "properties": normalized}, fmt=ctx.obj["format"])

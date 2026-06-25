@@ -28,6 +28,7 @@ from .resolve import App, PageController, Resolve
 from .timeline import (
     ClipFusion,  # deprecated alias of ItemFusion
     ClipQuery,  # deprecated alias of ItemQuery
+    ItemEdit,
     ItemFusion,
     ItemQuery,
     MarkerCollection,
@@ -55,6 +56,7 @@ __all__ = [
     "ColorGroup",
     "ColorOps",
     "Folder",
+    "ItemEdit",
     "ItemFusion",
     "ItemQuery",
     "MarkerCollection",

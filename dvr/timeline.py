@@ -134,6 +134,49 @@ class TimelineItem:
             )
         return ok
 
+    def set_properties(
+        self,
+        properties: dict[str, Any] | None = None,
+        *,
+        raise_on_failure: bool = True,
+        **kwargs: Any,
+    ) -> dict[str, bool]:
+        """Set multiple documented timeline-item properties.
+
+        Friendly keys and enum names are normalized through
+        :mod:`dvr.schema`, so ``{"crop_top": 120, "blend": "multiply"}``
+        becomes Resolve's ``CropTop`` and ``CompositeMode`` integer
+        constants before calling ``SetProperty``.
+        """
+        from . import schema
+
+        requested = dict(properties or {})
+        requested.update(kwargs)
+        normalized = schema.normalize_clip_properties(requested)
+        return {
+            key: self.set_property(key, value, raise_on_failure=raise_on_failure)
+            for key, value in normalized.items()
+        }
+
+    def reset_properties(
+        self,
+        groups: Iterable[str] | None = None,
+        *,
+        raise_on_failure: bool = True,
+    ) -> dict[str, bool]:
+        """Reset documented editing-property groups to DVR defaults."""
+        from . import schema
+
+        return self.set_properties(
+            schema.reset_clip_properties(tuple(groups) if groups is not None else None),
+            raise_on_failure=raise_on_failure,
+        )
+
+    @property
+    def edit(self) -> ItemEdit:
+        """Ergonomic editing helpers for transform/crop/composite properties."""
+        return ItemEdit(self)
+
     def add_marker(
         self,
         *,
@@ -298,6 +341,137 @@ class TimelineItem:
             "fusion_comps": fusion_comps,
             "color_versions": versions,
         }
+
+
+class ItemEdit:
+    """Ergonomic wrappers around documented ``TimelineItem.SetProperty`` keys."""
+
+    def __init__(self, item: TimelineItem) -> None:
+        self._item = item
+
+    def set(self, properties: dict[str, Any] | None = None, **kwargs: Any) -> TimelineItem:
+        self._item.set_properties(properties, **kwargs)
+        return self._item
+
+    def transform(
+        self,
+        *,
+        pan: float | None = None,
+        tilt: float | None = None,
+        zoom: float | None = None,
+        zoom_x: float | None = None,
+        zoom_y: float | None = None,
+        zoom_gang: bool | None = None,
+        rotation: float | None = None,
+        anchor_x: float | None = None,
+        anchor_y: float | None = None,
+        pitch: float | None = None,
+        yaw: float | None = None,
+        flip_x: bool | None = None,
+        flip_y: bool | None = None,
+    ) -> TimelineItem:
+        props: dict[str, Any] = {}
+        if pan is not None:
+            props["pan"] = pan
+        if tilt is not None:
+            props["tilt"] = tilt
+        if zoom is not None:
+            props["zoom"] = zoom
+        if zoom_x is not None:
+            props["zoom_x"] = zoom_x
+        if zoom_y is not None:
+            props["zoom_y"] = zoom_y
+        if zoom_gang is not None:
+            props["zoom_gang"] = zoom_gang
+        if rotation is not None:
+            props["rotation"] = rotation
+        if anchor_x is not None:
+            props["anchor_x"] = anchor_x
+        if anchor_y is not None:
+            props["anchor_y"] = anchor_y
+        if pitch is not None:
+            props["pitch"] = pitch
+        if yaw is not None:
+            props["yaw"] = yaw
+        if flip_x is not None:
+            props["flip_x"] = flip_x
+        if flip_y is not None:
+            props["flip_y"] = flip_y
+        return self.set(props)
+
+    def crop(
+        self,
+        *,
+        left: float | None = None,
+        right: float | None = None,
+        top: float | None = None,
+        bottom: float | None = None,
+        softness: float | None = None,
+        retain: bool | None = None,
+    ) -> TimelineItem:
+        props: dict[str, Any] = {}
+        if left is not None:
+            props["crop_left"] = left
+        if right is not None:
+            props["crop_right"] = right
+        if top is not None:
+            props["crop_top"] = top
+        if bottom is not None:
+            props["crop_bottom"] = bottom
+        if softness is not None:
+            props["crop_softness"] = softness
+        if retain is not None:
+            props["crop_retain"] = retain
+        return self.set(props)
+
+    def composite(
+        self,
+        *,
+        opacity: float | None = None,
+        mode: str | int | None = None,
+        distortion: float | None = None,
+    ) -> TimelineItem:
+        props: dict[str, Any] = {}
+        if opacity is not None:
+            props["opacity"] = opacity
+        if mode is not None:
+            props["composite_mode"] = mode
+        if distortion is not None:
+            props["distortion"] = distortion
+        return self.set(props)
+
+    def retime(
+        self,
+        *,
+        process: str | int | None = None,
+        motion_estimation: str | int | None = None,
+    ) -> TimelineItem:
+        props: dict[str, Any] = {}
+        if process is not None:
+            props["retime_process"] = process
+        if motion_estimation is not None:
+            props["motion_estimation"] = motion_estimation
+        return self.set(props)
+
+    def scaling(
+        self,
+        *,
+        mode: str | int | None = None,
+        resize_filter: str | int | None = None,
+    ) -> TimelineItem:
+        props: dict[str, Any] = {}
+        if mode is not None:
+            props["scaling"] = mode
+        if resize_filter is not None:
+            props["resize_filter"] = resize_filter
+        return self.set(props)
+
+    def dynamic_zoom(self, *, ease: str | int | None = None) -> TimelineItem:
+        return self.set({"dynamic_zoom_ease": ease} if ease is not None else {})
+
+    def reset(self, *groups: str) -> TimelineItem:
+        self._item.reset_properties(groups or None)
+        return self._item
 
 
 # Deprecated alias — within the ``dvr.timeline`` module, ``Clip`` historically
@@ -1171,6 +1345,49 @@ class ItemQuery:
             fn(item)
         return len(self._items)
 
+    def set_properties(self, properties: dict[str, Any] | None = None, **kwargs: Any) -> int:
+        """Set documented timeline-item properties on every item in the query."""
+        def _set(item: TimelineItem) -> None:
+            item.set_properties(properties, **kwargs)
+
+        return self.apply(_set)
+
+    def reset_properties(self, groups: Iterable[str] | None = None) -> int:
+        def _reset(item: TimelineItem) -> None:
+            item.reset_properties(groups)
+
+        return self.apply(_reset)
+
+    def transform(self, **kwargs: Any) -> int:
+        def _transform(item: TimelineItem) -> None:
+            item.edit.transform(**kwargs)
+
+        return self.apply(_transform)
+
+    def crop(self, **kwargs: Any) -> int:
+        def _crop(item: TimelineItem) -> None:
+            item.edit.crop(**kwargs)
+
+        return self.apply(_crop)
+
+    def composite(self, **kwargs: Any) -> int:
+        def _composite(item: TimelineItem) -> None:
+            item.edit.composite(**kwargs)
+
+        return self.apply(_composite)
+
+    def retime(self, **kwargs: Any) -> int:
+        def _retime(item: TimelineItem) -> None:
+            item.edit.retime(**kwargs)
+
+        return self.apply(_retime)
+
+    def scaling(self, **kwargs: Any) -> int:
+        def _scaling(item: TimelineItem) -> None:
+            item.edit.scaling(**kwargs)
+
+        return self.apply(_scaling)
+
 
 # Deprecated alias.
 ClipQuery = ItemQuery
@@ -1317,6 +1534,7 @@ __all__ = [
     "Clip",  # deprecated alias for TimelineItem (within dvr.timeline namespace)
     "ClipFusion",  # deprecated alias for ItemFusion
     "ClipQuery",  # deprecated alias for ItemQuery
+    "ItemEdit",
     "ItemFusion",
     "ItemQuery",
     "MarkerCollection",

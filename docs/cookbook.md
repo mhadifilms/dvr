@@ -81,6 +81,27 @@ dvr clip mark --where "duration < 12" --color Red --name "too short"
 dvr clip set --where "track_index == 2" CompositeMode=Difference Opacity=70
 ```
 
+### Crop and position clips with friendly property names
+
+```bash
+dvr clip transform --where "track_index == 2" --pan 40 --zoom 1.1 --rotation 2
+dvr clip crop --where "track_index == 2" --top 120 --bottom 120 --retain
+dvr clip composite --where "track_index == 2" --mode multiply --opacity 80
+```
+
+These commands normalize aliases and enum names before calling Resolve's
+documented `TimelineItem.SetProperty` API. To see the exact supported
+surface, run:
+
+```bash
+dvr clip capabilities
+dvr schema clip-properties
+```
+
+Resolve's scripting API supports these as static clip properties. It does
+not expose reliable edit-page transition creation or general transform
+keyframe writes.
+
 ### Diff this timeline against last week's
 
 ```bash

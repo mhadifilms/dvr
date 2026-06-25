@@ -18,6 +18,7 @@ dvr apply FILE        Reconcile a spec against the live Resolve state.
 dvr project   list | current | ensure | create | load | delete | save | export | import
 dvr timeline  list | current | inspect | ensure | create | switch | delete
 dvr media     inspect | bins | ls | mkbin | import | relink | storage
+dvr clip      ls | inspect | set | transform | crop | composite | retime | reset | capabilities
 dvr render    queue | presets | formats | codecs | submit | status | watch | stop | clear
 dvr serve     start | stop | status | methods                   (daemon mode)
 dvr mcp       serve                                              (MCP server for LLM agents)
@@ -60,6 +61,22 @@ dvr render queue --format yaml
 ```
 
 This works well with `jq`, `xargs`, or any stream processor.
+
+## Clip editing
+
+`dvr clip set` remains the raw property escape hatch, but the common
+documented `TimelineItem.SetProperty` controls also have ergonomic commands:
+
+```bash
+dvr clip transform --where "track_index == 2" --pan 40 --zoom 1.1
+dvr clip crop --where "track_index == 2" --top 120 --bottom 120
+dvr clip composite --where "track_index == 2" --mode multiply --opacity 80
+dvr clip retime --where "duration > 120" --process optical-flow
+dvr clip reset transform crop --where "name == 'plate.mov'"
+```
+
+Use `dvr clip capabilities` and `dvr schema clip-properties` to inspect the
+exact Resolve-supported property surface.
 
 ## Errors
 

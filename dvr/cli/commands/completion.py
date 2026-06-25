@@ -7,8 +7,9 @@ The generated scripts source themselves into bash/zsh/fish.
 from __future__ import annotations
 
 import os
-from typing import Annotated
+from typing import Annotated, cast
 
+import click
 import typer
 
 app = typer.Typer(name="completion", help="Generate shell completion scripts (bash | zsh | fish).")
@@ -49,7 +50,7 @@ def show(
     # `shell_complete` writes the script to stdout when given the matching env
     # vars; mimic that contract. Typer apps need to be converted to Click commands.
     os.environ["_DVR_COMPLETE"] = f"{shell}_source"
-    click_command = typer.main.get_command(cli_main.app)
+    click_command = cast(click.core.Command, typer.main.get_command(cli_main.app))
     rc = shell_complete(click_command, {}, "dvr", "_DVR_COMPLETE", f"{shell}_source")
     if rc != 0:
         typer.echo(f"completion generation failed (rc={rc})", err=True)

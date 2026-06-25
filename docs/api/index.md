@@ -18,6 +18,7 @@ This page renders the public Python API directly from the source. For higher-lev
         - Track
         - Clip
         - ClipQuery
+        - ItemEdit
         - ClipFusion
         - Takes
         - MediaPool
