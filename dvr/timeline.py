@@ -488,6 +488,114 @@ Clip = TimelineItem
 # ---------------------------------------------------------------------------
 
 
+class FusionTool:
+    """A Fusion tool node inside a composition."""
+
+    def __init__(self, raw: Any) -> None:
+        self._raw = raw
+
+    @property
+    def raw(self) -> Any:
+        return self._raw
+
+    @property
+    def id(self) -> str:
+        return str(getattr(self._raw, "ID", "") or "")
+
+    @property
+    def name(self) -> str:
+        return str(getattr(self._raw, "Name", "") or "")
+
+    def set_input(self, key: str, value: Any, *, frame: int = 0) -> None:
+        try:
+            ok = self._raw.SetInput(key, value, frame)
+        except TypeError:
+            ok = self._raw.SetInput(key, value)
+        if ok is False:
+            raise errors.FusionError(
+                f"Could not set Fusion input {key!r} on tool {self.name or self.id!r}.",
+                cause="SetInput returned False.",
+                state={"tool": self.name, "id": self.id, "key": key, "value": value},
+            )
+
+    def get_input(self, key: str, *, frame: int = 0) -> Any:
+        try:
+            return self._raw.GetInput(key, frame)
+        except TypeError:
+            return self._raw.GetInput(key)
+
+    def connect_input(self, input_name: str, source: FusionTool, output_name: str = "Output") -> None:
+        for args in (
+            (input_name, source.raw, output_name),
+            (input_name, source.raw),
+            (input_name, source.raw, "MainOutput"),
+        ):
+            try:
+                if self._raw.ConnectInput(*args):
+                    return
+            except TypeError:
+                continue
+            except Exception:
+                continue
+        raise errors.FusionError(
+            f"Could not connect {source.name or source.id!r} to {self.name or self.id!r}.",
+            cause="ConnectInput rejected all supported call shapes.",
+            state={
+                "target": self.name,
+                "target_id": self.id,
+                "input": input_name,
+                "source": source.name,
+                "source_id": source.id,
+                "output": output_name,
+            },
+        )
+
+
+class FusionComp:
+    """A Fusion composition attached to a timeline item."""
+
+    def __init__(self, raw: Any) -> None:
+        self._raw = raw
+
+    @property
+    def raw(self) -> Any:
+        return self._raw
+
+    def tools(self) -> dict[str, FusionTool]:
+        return {
+            str(name): FusionTool(tool)
+            for name, tool in (self._raw.GetToolList(False) or {}).items()
+        }
+
+    def find_tool(self, name: str) -> FusionTool | None:
+        try:
+            tool = self._raw.FindTool(name)
+        except Exception:
+            tool = None
+        return FusionTool(tool) if tool else None
+
+    def require_tool(self, name: str) -> FusionTool:
+        tool = self.find_tool(name)
+        if tool is None:
+            raise errors.FusionError(
+                f"Fusion comp has no tool named {name!r}.",
+                cause="FindTool returned None.",
+                state={"name": name},
+            )
+        return tool
+
+    def add_tool(self, tool_id: str, x: float = 1, y: float = 0) -> FusionTool:
+        tool = self._raw.AddTool(tool_id, x, y)
+        if tool is None:
+            raise errors.FusionError(
+                f"Could not add Fusion tool {tool_id!r}.",
+                cause="AddTool returned None.",
+                fix="Confirm the tool is loaded in Resolve/Fusion and use the scripting tool ID.",
+                state={"tool_id": tool_id, "x": x, "y": y},
+            )
+        return FusionTool(tool)
+
+
 class ItemFusion:
     """Per-timeline-item Fusion comp operations."""
 
@@ -508,6 +616,10 @@ class ItemFusion:
             )
         return comp
 
+    def add_comp(self) -> FusionComp:
+        """Add a Fusion comp and return a wrapped composition."""
+        return FusionComp(self.add())
+
     def load(self, name: str) -> Any:
         comp = self._raw.LoadFusionCompByName(name)
         if comp is None:
@@ -515,6 +627,33 @@ class ItemFusion:
                 f"Could not load Fusion comp {name!r}.",
                 cause="LoadFusionCompByName returned None.",
                 state={"item": self._item.name, "name": name},
+            )
+        return comp
+
+    def load_comp(self, name: str) -> FusionComp:
+        """Load a named Fusion comp and return a wrapped composition."""
+        return FusionComp(self.load(name))
+
+    def comp(self, index: int = 1, *, create: bool = False) -> FusionComp | None:
+        """Return a wrapped Fusion comp by 1-based index.
+
+        If ``create`` is true and the requested comp does not exist, add one.
+        """
+        try:
+            raw = self._raw.GetFusionCompByIndex(index)
+        except Exception:
+            raw = None
+        if raw is None and create:
+            raw = self.add()
+        return FusionComp(raw) if raw is not None else None
+
+    def require_comp(self, index: int = 1, *, create: bool = False) -> FusionComp:
+        comp = self.comp(index, create=create)
+        if comp is None:
+            raise errors.FusionError(
+                f"Item {self._item.name!r} has no Fusion comp at index {index}.",
+                cause="GetFusionCompByIndex returned None.",
+                state={"item": self._item.name, "index": index},
             )
         return comp
 
@@ -1534,6 +1673,8 @@ __all__ = [
     "Clip",  # deprecated alias for TimelineItem (within dvr.timeline namespace)
     "ClipFusion",  # deprecated alias for ItemFusion
     "ClipQuery",  # deprecated alias for ItemQuery
+    "FusionComp",
+    "FusionTool",
     "ItemEdit",
     "ItemFusion",
     "ItemQuery",
