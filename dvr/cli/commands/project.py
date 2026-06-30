@@ -153,12 +153,21 @@ def generate_speech(
     voice: Annotated[
         str | None, typer.Option("--voice", help="Voice model, e.g. 'Female 1'.")
     ] = None,
+    speed: Annotated[
+        float | None, typer.Option("--speed", help="Speech speed multiplier (1.0 = normal).")
+    ] = None,
+    pitch: Annotated[float | None, typer.Option("--pitch", help="Voice pitch adjustment.")] = None,
+    filename: Annotated[
+        str | None, typer.Option("--filename", help="Name for the generated audio clip.")
+    ] = None,
     track: Annotated[
         int | None, typer.Option("--track", help="Audio track index when adding to timeline.")
     ] = None,
     add_to_timeline: Annotated[
         bool,
-        typer.Option("--add-to-timeline/--no-add-to-timeline", help="Place the clip on the timeline."),
+        typer.Option(
+            "--add-to-timeline/--no-add-to-timeline", help="Place the clip on the timeline."
+        ),
     ] = True,
 ) -> None:
     """Generate a text-to-speech audio clip (Resolve 21+, Studio)."""
@@ -166,6 +175,12 @@ def generate_speech(
     settings: dict[str, object] = {"TextInput": text, "AddToTimeline": add_to_timeline}
     if voice:
         settings["VoiceModel"] = voice
+    if speed is not None:
+        settings["Speed"] = speed
+    if pitch is not None:
+        settings["Pitch"] = pitch
+    if filename:
+        settings["Filename"] = filename
     if track is not None:
         settings["AudioTrack"] = track
     clip = proj.generate_speech(settings, timecode)

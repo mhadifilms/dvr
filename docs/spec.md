@@ -61,12 +61,27 @@ timelines:                       # optional — timelines to ensure
           crop_bottom: 120
           blend: multiply
           opacity: 80
+    titles:                      # optional — on-screen Text+ titles
+      - text: "OPENING TITLE"    # required — also the idempotency key
+        at: "01:00:02:00"        # optional — timecode to place a new title
+        title: "Text+"           # optional — defaults to the Text+ generator
+        font: "Open Sans"
+        size: 0.12
+        color: "#ffcc00"         # hex, name, or [r, g, b]
+        align: center            # left | center | right
+        vertical_align: center   # top | center | bottom
 ```
 
 `clip_properties` entries select timeline items, normalize friendly keys
 through `dvr.schema`, and apply only values that differ from the current
 `GetProperty` value. Selectors support `track_type`, `track_index`, `name`,
 `name_contains`, `start`, `end`, `duration_lt`, and `duration_gt`.
+
+`titles` entries are matched by their `text`: if a video item with a Text+ tool
+already shows that string, its styling is updated in place; otherwise a new
+title is inserted (seeking to `at` first when given). That keeps re-runs
+idempotent. Styling accepts `font`, `style`, `size`, `color`, `opacity`,
+`tracking`, `line_spacing`, `position`, `align`, and `vertical_align`.
 
 Supported properties are Resolve's documented static timeline-item controls:
 transform, crop, dynamic zoom ease, composite, retime quality, scaling, and

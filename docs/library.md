@@ -71,6 +71,44 @@ resize filter controls. Resolve does not expose reliable APIs for edit-page
 transitions or general transform keyframes, so DVR reports those as
 unsupported capabilities instead of fabricating them.
 
+## Text and titles
+
+Insert a Fusion title (the default is the built-in `Text+`) and style it in
+one call. The styling lives on `TimelineItem.text`, which targets the item's
+`TextPlus` Fusion node:
+
+```python
+tl.current_timecode = "01:00:02:00"            # place at the playhead
+item = tl.insert_title(
+    "Text+",
+    text="OPENING TITLE",
+    font="Open Sans",
+    style="Bold",
+    size=0.12,
+    color="#ffcc00",                            # hex, name, or (r, g, b[, a])
+    align="center",
+    vertical_align="center",
+)
+
+# Re-style or read existing titles.
+item.text.set(text="REVISED", color="white", position=(0.5, 0.25))
+item.text.value                                 # current string
+item.text.properties()                          # snapshot of editable inputs
+item.is_text                                     # True for Text+ items
+```
+
+`generate_speech` exposes Resolve's full text-to-speech settings (voice,
+speed, pitch, filename), and `create_subtitles_from_audio` drives the Whisper
+captioner:
+
+```python
+project.generate_speech(
+    {"TextInput": "Welcome back.", "VoiceModel": "Female 1", "Speed": 1.0},
+    "01:00:00:00",
+)
+tl.create_subtitles_from_audio(language="en", chars_per_line=42)
+```
+
 ## Idempotent context managers
 
 ```python

@@ -15,10 +15,10 @@ dvr apply FILE        Reconcile a spec against the live Resolve state.
 ## Domains
 
 ```text
-dvr project   list | current | ensure | create | load | delete | save | export | import
-dvr timeline  list | current | inspect | ensure | create | switch | delete
+dvr project   list | current | ensure | create | load | delete | save | export | import | generate-speech
+dvr timeline  list | current | inspect | ensure | create | switch | delete | add-title | subtitles
 dvr media     inspect | bins | ls | mkbin | import | relink | storage
-dvr clip      ls | inspect | set | transform | crop | composite | retime | reset | capabilities
+dvr clip      ls | inspect | set | transform | crop | composite | retime | reset | text | capabilities
 dvr render    queue | presets | formats | codecs | submit | status | watch | stop | clear
 dvr serve     start | stop | status | methods                   (daemon mode)
 dvr mcp       serve                                              (MCP server for LLM agents)
@@ -77,6 +77,38 @@ dvr clip reset transform crop --where "name == 'plate.mov'"
 
 Use `dvr clip capabilities` and `dvr schema clip-properties` to inspect the
 exact Resolve-supported property surface.
+
+## Text & titles
+
+Insert a Fusion title (defaults to the built-in `Text+`) and style it in one
+command. Colors accept hex (`#ffcc00`), CSS-ish names (`white`), or comma-separated
+`r,g,b`. Sizes are Text+ relative units (~0.05–0.2):
+
+```bash
+dvr timeline add-title --text "OPENING" --font "Open Sans" --size 0.12 \
+  --color "#ffcc00" --align center --at "01:00:02:00"
+```
+
+Re-style existing Text+ titles already on the timeline (only clips carrying a
+Text+ tool are touched; others are reported as skipped):
+
+```bash
+dvr clip text --where "name == 'Text+'" --text "REVISED" --color white
+dvr clip text -t video --font "Open Sans" --size 0.1 --align center
+```
+
+Generate spoken audio from text, with full voice controls:
+
+```bash
+dvr project generate-speech --text "Welcome back." --voice "Female 1" \
+  --speed 1.0 --pitch 0 --track 2
+```
+
+Auto-caption a timeline from its audio (Whisper, Studio):
+
+```bash
+dvr timeline subtitles --language en --chars-per-line 42
+```
 
 ## Errors
 

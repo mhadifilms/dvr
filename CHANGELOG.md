@@ -6,6 +6,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- On-screen text customization. `dvr` could only drop a raw Fusion node;
+  it now inserts and fully styles titles across every interface.
+  - Library: `Timeline.insert_title(title="Text+", *, fusion=True, ...)`
+    inserts a (Fusion) title at the playhead and styles it in one call, and
+    `TimelineItem.text` (`ItemText`) reads/sets the Text+ string, font,
+    style, size, color (hex / name / `[r,g,b]`), opacity, tracking, line
+    spacing, position, and horizontal/vertical alignment. New
+    `FusionTool.set_point()` and `FusionComp.text_tools()` helpers back it.
+  - CLI: `dvr timeline add-title` and `dvr clip text` (bulk-style filtered
+    clips, skipping non-text items).
+  - MCP tools: `timeline_add_title` and `clip_set_text`.
+  - Declarative specs: a timeline-level `titles` list inserts and styles
+    titles, matched by their text so re-running `dvr apply` updates styling
+    in place instead of stacking duplicates.
+  - `TimelineItem.is_text` reports whether an item carries an editable Text+
+    tool.
+- Text-to-speech customization: `--speed`, `--pitch`, and `--filename` are
+  now exposed on `dvr project generate-speech` and the
+  `project_generate_speech` MCP tool (the library already accepted the full
+  settings dict).
+- Subtitle generation reached the CLI and MCP server: `dvr timeline
+  subtitles` and the `timeline_create_subtitles` tool wrap
+  `Timeline.create_subtitles_from_audio` with its language, characters-per-line,
+  line-break, and preset options.
+
 ## [1.3.0] - 2026-06-25
 
 Editing controls expansion. Additive across the library, CLI, MCP server,

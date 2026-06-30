@@ -235,6 +235,19 @@ class TimelineItem:
         return (int(self._raw.GetSourceStartFrame()), int(self._raw.GetSourceEndFrame()))
 
     @property
+    def is_text(self) -> bool:
+        """True iff this item carries a Fusion Text+ tool (a styleable title).
+
+        Best-effort: returns False for normal clips and anything without an
+        editable ``TextPlus`` node. Use :attr:`text` to read or style it.
+        """
+        try:
+            comp = self.fusion.comp(1)
+            return bool(comp is not None and comp.text_tools())
+        except Exception:  # boundary
+            return False
+
+    @property
     def is_compound(self) -> bool:
         """True iff this item is a compound clip on the timeline.
 
@@ -278,6 +291,11 @@ class TimelineItem:
     def fusion(self) -> ItemFusion:
         """Fusion-comp operations on this item (add, import, export, switch)."""
         return ItemFusion(self)
+
+    @property
+    def text(self) -> ItemText:
+        """Text+ content and styling on this item (Fusion titles / ``Text+``)."""
+        return ItemText(self)
 
     @property
     def takes(self) -> Takes:
@@ -524,7 +542,39 @@ class FusionTool:
         except TypeError:
             return self._raw.GetInput(key)
 
-    def connect_input(self, input_name: str, source: FusionTool, output_name: str = "Output") -> None:
+    def set_point(self, key: str, x: float, y: float, *, frame: int = 0) -> None:
+        """Set a Fusion point input (e.g. a tool's ``Center``).
+
+        Fusion point controls are set with a coordinate pair, but the
+        scripting bridge accepts that pair in a couple of shapes depending
+        on platform/version. Try each known shape and only fail if every
+        one is rejected.
+        """
+        last_error: Exception | None = None
+        for value in ([float(x), float(y)], {1: float(x), 2: float(y)}):
+            try:
+                ok = self._raw.SetInput(key, value, frame)
+            except TypeError:
+                try:
+                    ok = self._raw.SetInput(key, value)
+                except Exception as exc:  # boundary
+                    last_error = exc
+                    continue
+            except Exception as exc:  # boundary
+                last_error = exc
+                continue
+            if ok is not False:
+                return
+        raise errors.FusionError(
+            f"Could not set Fusion point input {key!r} on tool {self.name or self.id!r}.",
+            cause="SetInput rejected every supported point shape."
+            + (f" Last error: {last_error}" if last_error is not None else ""),
+            state={"tool": self.name, "id": self.id, "key": key, "x": x, "y": y},
+        )
+
+    def connect_input(
+        self, input_name: str, source: FusionTool, output_name: str = "Output"
+    ) -> None:
         for args in (
             (input_name, source.raw, output_name),
             (input_name, source.raw),
@@ -573,6 +623,21 @@ class FusionComp:
         except Exception:
             tool = None
         return FusionTool(tool) if tool else None
+
+    def text_tools(self) -> List[FusionTool]:  # noqa: UP006
+        """Every Text+ (``TextPlus``) tool in this comp, in tool order.
+
+        Used by :class:`ItemText` to locate the editable text node inside a
+        Fusion title or the ``Text+`` generator.
+        """
+        try:
+            raw_map = self._raw.GetToolList(False, _TEXT_TOOL_REGID) or {}
+        except TypeError:
+            raw_map = {}
+        tools = [FusionTool(t) for t in raw_map.values()]
+        if tools:
+            return tools
+        return [tool for tool in self.tools().values() if _is_text_tool(tool)]
 
     def require_tool(self, name: str) -> FusionTool:
         tool = self.find_tool(name)
@@ -691,6 +756,258 @@ class ItemFusion:
 
 # Deprecated alias.
 ClipFusion = ItemFusion
+
+
+# ---------------------------------------------------------------------------
+# Text+ (Fusion title) customization
+# ---------------------------------------------------------------------------
+
+
+# Fusion registry ID of the Text+ tool that backs every Fusion title.
+_TEXT_TOOL_REGID = "TextPlus"
+
+# Text+ uses anchor inputs of -1/0/1 for alignment.
+_HORIZONTAL_ALIGN: dict[str, int] = {"left": -1, "center": 0, "centre": 0, "middle": 0, "right": 1}
+_VERTICAL_ALIGN: dict[str, int] = {"top": 1, "center": 0, "centre": 0, "middle": 0, "bottom": -1}
+
+_NAMED_COLORS: dict[str, tuple[float, float, float]] = {
+    "white": (1.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0),
+    "red": (1.0, 0.0, 0.0),
+    "green": (0.0, 1.0, 0.0),
+    "blue": (0.0, 0.0, 1.0),
+    "yellow": (1.0, 1.0, 0.0),
+    "cyan": (0.0, 1.0, 1.0),
+    "magenta": (1.0, 0.0, 1.0),
+    "orange": (1.0, 0.5, 0.0),
+    "purple": (0.5, 0.0, 0.5),
+    "gray": (0.5, 0.5, 0.5),
+    "grey": (0.5, 0.5, 0.5),
+}
+
+
+def _is_text_tool(tool: FusionTool) -> bool:
+    if tool.id == _TEXT_TOOL_REGID:
+        return True
+    try:
+        attrs = tool.raw.GetAttrs() or {}
+    except Exception:  # boundary
+        return False
+    return str(attrs.get("TOOLS_RegID", "")) == _TEXT_TOOL_REGID
+
+
+def _parse_color(value: Any) -> tuple[float, float, float, float | None]:
+    """Normalize a color into ``(r, g, b, a)`` floats in 0..1 (alpha optional).
+
+    Accepts a hex string (``"#ff8800"`` / ``"#ff8800cc"``), a CSS-ish name
+    (``"white"``, ``"red"`` ...), or a 3/4 number sequence (floats in 0..1,
+    or ints in 0..255).
+    """
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key in _NAMED_COLORS:
+            r, g, b = _NAMED_COLORS[key]
+            return (r, g, b, None)
+        digits = key.lstrip("#")
+        if len(digits) in (6, 8) and all(c in "0123456789abcdef" for c in digits):
+            r = int(digits[0:2], 16) / 255.0
+            g = int(digits[2:4], 16) / 255.0
+            b = int(digits[4:6], 16) / 255.0
+            a = int(digits[6:8], 16) / 255.0 if len(digits) == 8 else None
+            return (r, g, b, a)
+        raise errors.FusionError(
+            f"Unrecognized color {value!r}.",
+            fix="Use a hex string like '#ff8800', a name like 'white', or an (r,g,b) sequence.",
+            state={"value": value},
+        )
+    if isinstance(value, (tuple, list)):
+        nums = [float(c) for c in value]
+        if len(nums) not in (3, 4):
+            raise errors.FusionError(
+                f"Color sequence must have 3 or 4 components, got {len(nums)}.",
+                state={"value": list(value)},
+            )
+        if any(n > 1.0 for n in nums):
+            nums = [n / 255.0 for n in nums]
+        if len(nums) == 3:
+            return (nums[0], nums[1], nums[2], None)
+        return (nums[0], nums[1], nums[2], nums[3])
+    raise errors.FusionError(
+        f"Unsupported color value {value!r}.",
+        fix="Pass a hex string, a color name, or an (r,g,b[,a]) sequence.",
+        state={"value": value},
+    )
+
+
+def _coerce_point(position: Any) -> tuple[float, float]:
+    if isinstance(position, dict):
+        x = position.get("x", position.get(1, position.get("1")))
+        y = position.get("y", position.get(2, position.get("2")))
+        if x is None or y is None:
+            raise errors.FusionError(
+                f"Invalid text position {position!r}.",
+                fix="Pass {'x': 0.5, 'y': 0.5} or an (x, y) pair (0..1, center is 0.5,0.5).",
+                state={"position": position},
+            )
+        return float(x), float(y)
+    if isinstance(position, (tuple, list)) and len(position) >= 2:
+        return float(position[0]), float(position[1])
+    raise errors.FusionError(
+        f"Invalid text position {position!r}.",
+        fix="Pass an (x, y) pair with 0..1 normalized coordinates (center is 0.5, 0.5).",
+        state={"position": position},
+    )
+
+
+def _align_value(value: Any, mapping: dict[str, int], label: str) -> int:
+    if isinstance(value, bool):  # guard: bool is an int subclass
+        raise errors.FusionError(f"{label} must be a name or anchor int, not a bool.")
+    if isinstance(value, (int, float)):
+        return int(value)
+    key = str(value).strip().lower()
+    if key not in mapping:
+        raise errors.FusionError(
+            f"Unknown {label} {value!r}.",
+            fix=f"Use one of {sorted(set(mapping))}, or an anchor int (-1, 0, 1).",
+            state={label: value},
+        )
+    return mapping[key]
+
+
+class ItemText:
+    """Read and customize the Text+ content and styling on a timeline item.
+
+    The item must carry a Fusion ``TextPlus`` tool — true for Fusion
+    *titles* inserted via :meth:`Timeline.insert_title` (e.g. ``"Text+"``).
+    One :meth:`set` call drives the string, font, style, size, color,
+    opacity, letter/line spacing, position, and alignment::
+
+        item = tl.insert_title("Text+")
+        item.text.set("HELLO", font="Open Sans", size=0.12, color="#ffcc00")
+
+    Reads come back through :attr:`value` and :meth:`properties`.
+    """
+
+    def __init__(self, item: TimelineItem) -> None:
+        self._item = item
+
+    def tool(self) -> FusionTool:
+        """The first ``TextPlus`` tool on the item, or raise a clear error."""
+        comp = self._item.fusion.comp(1)
+        if comp is None:
+            raise errors.FusionError(
+                f"Item {self._item.name!r} has no Fusion composition.",
+                cause="GetFusionCompByIndex(1) returned None.",
+                fix="Insert a Fusion title first, e.g. tl.insert_title('Text+').",
+                state={"item": self._item.name},
+            )
+        tools = comp.text_tools()
+        if not tools:
+            raise errors.FusionError(
+                f"Item {self._item.name!r} has no Text+ tool to edit.",
+                cause="No TextPlus tool was found in the item's Fusion comp.",
+                fix="Insert a Fusion title (e.g. tl.insert_title('Text+')) or add a TextPlus tool.",
+                state={"item": self._item.name},
+            )
+        return tools[0]
+
+    @property
+    def value(self) -> str:
+        """The current text string (Text+ ``StyledText``)."""
+        return str(self.tool().get_input("StyledText") or "")
+
+    @value.setter
+    def value(self, text: str) -> None:
+        self.set(text)
+
+    def get(self, key: str) -> Any:
+        """Read a raw Text+ Fusion input by ID (e.g. ``"Size"``)."""
+        return self.tool().get_input(key)
+
+    def set(
+        self,
+        text: str | None = None,
+        *,
+        font: str | None = None,
+        style: str | None = None,
+        size: float | None = None,
+        color: Any | None = None,
+        opacity: float | None = None,
+        tracking: float | None = None,
+        line_spacing: float | None = None,
+        position: Any | None = None,
+        align: str | int | None = None,
+        vertical_align: str | int | None = None,
+    ) -> TimelineItem:
+        """Customize the Text+ tool. Only the arguments you pass are changed.
+
+        Args:
+            text:           The displayed string (``StyledText``).
+            font:           Font family, e.g. ``"Open Sans"``.
+            style:          Font style, e.g. ``"Regular"``, ``"Bold"``, ``"Italic"``.
+            size:           Relative size (Text+ ``Size``, typically ~0.05-0.2).
+            color:          Fill color - hex (``"#ffcc00"``), name (``"white"``),
+                            or an ``(r, g, b[, a])`` sequence.
+            opacity:        Text alpha, 0..1 (Text+ ``Alpha1``).
+            tracking:       Letter spacing (Text+ ``Tracking``).
+            line_spacing:   Line spacing (Text+ ``LineSpacing``).
+            position:       ``(x, y)`` layout center, 0..1 (center is 0.5, 0.5).
+            align:          Horizontal anchor: ``left`` / ``center`` / ``right``.
+            vertical_align: Vertical anchor: ``top`` / ``center`` / ``bottom``.
+
+        Returns the underlying :class:`TimelineItem` for chaining.
+        """
+        tool = self.tool()
+        simple = {
+            "StyledText": text,
+            "Font": font,
+            "Style": style,
+            "Size": size,
+            "Tracking": tracking,
+            "LineSpacing": line_spacing,
+        }
+        for key, val in simple.items():
+            if val is not None:
+                tool.set_input(key, val)
+        if color is not None:
+            r, g, b, a = _parse_color(color)
+            tool.set_input("Red1", r)
+            tool.set_input("Green1", g)
+            tool.set_input("Blue1", b)
+            if a is not None:
+                tool.set_input("Alpha1", a)
+        if opacity is not None:
+            tool.set_input("Alpha1", float(opacity))
+        if position is not None:
+            x, y = _coerce_point(position)
+            tool.set_point("Center", x, y)
+        if align is not None:
+            tool.set_input("HorizontalAnchor", _align_value(align, _HORIZONTAL_ALIGN, "align"))
+        if vertical_align is not None:
+            tool.set_input(
+                "VerticalAnchor", _align_value(vertical_align, _VERTICAL_ALIGN, "vertical_align")
+            )
+        return self._item
+
+    def properties(self) -> dict[str, Any]:
+        """Snapshot the editable Text+ inputs for inspection."""
+        tool = self.tool()
+        return {
+            "tool": tool.name,
+            "text": tool.get_input("StyledText"),
+            "font": tool.get_input("Font"),
+            "style": tool.get_input("Style"),
+            "size": tool.get_input("Size"),
+            "color": [
+                tool.get_input("Red1"),
+                tool.get_input("Green1"),
+                tool.get_input("Blue1"),
+            ],
+            "opacity": tool.get_input("Alpha1"),
+            "tracking": tool.get_input("Tracking"),
+            "line_spacing": tool.get_input("LineSpacing"),
+            "center": tool.get_input("Center"),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1356,6 +1673,105 @@ class Timeline:
             track_index=item_list[0].track_index,
         )
 
+    # --- titles / text ----------------------------------------------------
+
+    def _locate_video_track_index(self, raw_item: Any) -> int:
+        """Best-effort: find which video track a freshly inserted item landed on."""
+        try:
+            target_id = raw_item.GetUniqueId()
+        except Exception:  # boundary
+            target_id = None
+        if target_id is not None:
+            for ti in range(1, self.track_count("video") + 1):
+                for it in self._raw.GetItemListInTrack("video", ti) or []:
+                    try:
+                        if it.GetUniqueId() == target_id:
+                            return ti
+                    except Exception:  # boundary
+                        continue
+        return 1
+
+    def insert_title(
+        self,
+        title: str = "Text+",
+        *,
+        fusion: bool = True,
+        text: str | None = None,
+        font: str | None = None,
+        style: str | None = None,
+        size: float | None = None,
+        color: Any | None = None,
+        opacity: float | None = None,
+        tracking: float | None = None,
+        line_spacing: float | None = None,
+        position: Any | None = None,
+        align: str | int | None = None,
+        vertical_align: str | int | None = None,
+    ) -> TimelineItem:
+        """Insert a title at the playhead and optionally style its text.
+
+        With ``fusion=True`` (default) this inserts a Fusion title such as
+        the built-in ``"Text+"`` — the kind whose text you can drive via
+        :attr:`TimelineItem.text`; any of the styling arguments below are
+        applied immediately. With ``fusion=False`` it inserts a standard
+        (non-Fusion) title, which exposes no scriptable text (the styling
+        arguments are then ignored).
+
+        The title lands at the current frame on the current video track, so
+        seek first (e.g. ``tl.current_timecode = "01:00:05:00"``) to place
+        it. Returns the new :class:`TimelineItem`.
+        """
+        method_name = "InsertFusionTitleIntoTimeline" if fusion else "InsertTitleIntoTimeline"
+        insert = getattr(self._raw, method_name, None)
+        if not callable(insert):
+            raise errors.TimelineError(
+                f"This DaVinci Resolve build cannot insert titles via {method_name}().",
+                cause=f"The timeline object does not expose {method_name}.",
+                fix="Update DaVinci Resolve, or insert the title manually on the Edit page.",
+                state={"timeline": self.name, "title": title, "fusion": fusion},
+            )
+        raw_item = insert(title)
+        if raw_item is None:
+            raise errors.TimelineError(
+                f"Could not insert title {title!r} into timeline {self.name!r}.",
+                cause=f"{method_name} returned None — the title name may be unknown to Resolve.",
+                fix="Use the exact name from Resolve's Effects → Titles list (e.g. 'Text+').",
+                state={"timeline": self.name, "title": title, "fusion": fusion},
+            )
+        item = TimelineItem(
+            raw_item,
+            track_type="video",
+            track_index=self._locate_video_track_index(raw_item),
+        )
+        styling = (
+            text,
+            font,
+            style,
+            size,
+            color,
+            opacity,
+            tracking,
+            line_spacing,
+            position,
+            align,
+            vertical_align,
+        )
+        if fusion and any(v is not None for v in styling):
+            item.text.set(
+                text,
+                font=font,
+                style=style,
+                size=size,
+                color=color,
+                opacity=opacity,
+                tracking=tracking,
+                line_spacing=line_spacing,
+                position=position,
+                align=align,
+                vertical_align=vertical_align,
+            )
+        return item
+
     # --- markers ----------------------------------------------------------
 
     @property
@@ -1486,6 +1902,7 @@ class ItemQuery:
 
     def set_properties(self, properties: dict[str, Any] | None = None, **kwargs: Any) -> int:
         """Set documented timeline-item properties on every item in the query."""
+
         def _set(item: TimelineItem) -> None:
             item.set_properties(properties, **kwargs)
 
@@ -1678,6 +2095,7 @@ __all__ = [
     "ItemEdit",
     "ItemFusion",
     "ItemQuery",
+    "ItemText",
     "MarkerCollection",
     "Takes",
     "Timeline",

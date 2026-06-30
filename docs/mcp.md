@@ -86,6 +86,10 @@ dvr mcp tools --detail  # full descriptions and JSON schemas
 | `marker_add` | Add a marker at a frame on a timeline. |
 | `clip_where` | Filter timeline items by safe declarative fields (duration, name, track type). |
 | `clip_set_properties` / `clip_transform` / `clip_crop` / `clip_reset` / `clip_capabilities` | Set documented static timeline-item controls and discover unsupported transition/keyframe capabilities without using `eval`. |
+| `timeline_add_title` | Insert a (Fusion) title and style its text — string, font, style, size, color (hex/name/`[r,g,b]`), opacity, tracking, line spacing, position, and alignment. |
+| `clip_set_text` | Re-style Text+ titles selected by safe filters; non-text clips are reported as skipped. |
+| `timeline_create_subtitles` | Generate subtitles from a timeline's audio (Whisper, Studio) with language / chars-per-line / line-break / preset. |
+| `project_generate_speech` | Text-to-speech to an audio clip, with `voice`, `speed`, `pitch`, `filename`, and timeline placement (Resolve 21+, Studio). |
 | `media_inspect` / `media_bins` / `media_ls` / `media_import` | Media pool. |
 | `media_scan` | Scan a filesystem folder for importable video/audio files, skipping hidden AppleDouble files by default. |
 | `media_bin_ensure` / `media_bin_delete` / `media_move` | Create/delete nested bins and move media-pool clips without breaking timelines. Slash paths like `Picture/Plates` are accepted consistently. |

@@ -234,8 +234,12 @@ def transform_cmd(
     anchor_y: Annotated[float | None, typer.Option("--anchor-y", help="Anchor point Y.")] = None,
     pitch: Annotated[float | None, typer.Option("--pitch", help="3D pitch.")] = None,
     yaw: Annotated[float | None, typer.Option("--yaw", help="3D yaw.")] = None,
-    flip_x: Annotated[bool | None, typer.Option("--flip-x/--no-flip-x", help="Flip horizontally.")] = None,
-    flip_y: Annotated[bool | None, typer.Option("--flip-y/--no-flip-y", help="Flip vertically.")] = None,
+    flip_x: Annotated[
+        bool | None, typer.Option("--flip-x/--no-flip-x", help="Flip horizontally.")
+    ] = None,
+    flip_y: Annotated[
+        bool | None, typer.Option("--flip-y/--no-flip-y", help="Flip vertically.")
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
 ) -> None:
     """Set transform properties on filtered timeline clips."""
@@ -298,7 +302,9 @@ def composite_cmd(
         str | None,
         typer.Option("--mode", help="Composite/blend mode name or integer constant."),
     ] = None,
-    distortion: Annotated[float | None, typer.Option("--distortion", help="Distortion -1..1.")] = None,
+    distortion: Annotated[
+        float | None, typer.Option("--distortion", help="Distortion -1..1.")
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
 ) -> None:
     """Set composite properties on filtered timeline clips."""
@@ -346,7 +352,9 @@ def reset_cmd(
     ctx: typer.Context,
     groups: Annotated[
         list[str] | None,
-        typer.Argument(help="Property groups to reset: transform, crop, composite, retime, scaling."),
+        typer.Argument(
+            help="Property groups to reset: transform, crop, composite, retime, scaling."
+        ),
     ] = None,
     where: Annotated[str | None, typer.Option("--where", "-w", help="Filter expression.")] = None,
     track: Annotated[str | None, typer.Option("--track", "-t", help="Track type filter.")] = None,
@@ -361,6 +369,97 @@ def reset_cmd(
 def capabilities_cmd(ctx: typer.Context) -> None:
     """Describe Resolve timeline-item editing capabilities exposed by dvr."""
     output.emit(schema.clip_property_capabilities(), fmt=ctx.obj["format"])
+
+
+@app.command("text")
+def text_cmd(
+    ctx: typer.Context,
+    where: Annotated[str | None, typer.Option("--where", "-w", help="Filter expression.")] = None,
+    track: Annotated[str | None, typer.Option("--track", "-t", help="Track type filter.")] = None,
+    text: Annotated[str | None, typer.Option("--text", help="The displayed text string.")] = None,
+    font: Annotated[
+        str | None, typer.Option("--font", help="Font family, e.g. 'Open Sans'.")
+    ] = None,
+    style: Annotated[
+        str | None, typer.Option("--style", help="Font style, e.g. Regular, Bold, Italic.")
+    ] = None,
+    size: Annotated[float | None, typer.Option("--size", help="Relative size (~0.05-0.2).")] = None,
+    color: Annotated[
+        str | None, typer.Option("--color", help="Hex (#ffcc00), name (white), or r,g,b.")
+    ] = None,
+    opacity: Annotated[float | None, typer.Option("--opacity", help="Text alpha, 0..1.")] = None,
+    tracking: Annotated[float | None, typer.Option("--tracking", help="Letter spacing.")] = None,
+    line_spacing: Annotated[
+        float | None, typer.Option("--line-spacing", help="Line spacing.")
+    ] = None,
+    pos_x: Annotated[float | None, typer.Option("--x", help="Layout center X (0..1).")] = None,
+    pos_y: Annotated[float | None, typer.Option("--y", help="Layout center Y (0..1).")] = None,
+    align: Annotated[
+        str | None, typer.Option("--align", help="Horizontal anchor: left|center|right.")
+    ] = None,
+    vertical_align: Annotated[
+        str | None, typer.Option("--valign", help="Vertical anchor: top|center|bottom.")
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", "-n")] = False,
+) -> None:
+    """Customize Text+ content/styling on filtered timeline clips.
+
+    Only clips carrying a Fusion Text+ tool are updated; others are skipped
+    and reported. Defaults to video clips when no ``--track`` is given.
+
+    Examples::
+
+        dvr clip text --where "name=='Text+'" --text "HELLO" --color "#ffcc00"
+        dvr clip text -t video --font "Open Sans" --size 0.12 --align center
+    """
+    r = _resolve(ctx)
+    clips = _filter_clips(r, where, track or "video")
+    position = (pos_x, pos_y) if pos_x is not None and pos_y is not None else None
+    color_value = _parse_color_option(color)
+    fields = _drop_none(
+        {
+            "font": font,
+            "style": style,
+            "size": size,
+            "color": color_value,
+            "opacity": opacity,
+            "tracking": tracking,
+            "line_spacing": line_spacing,
+            "position": position,
+            "align": align,
+            "vertical_align": vertical_align,
+        }
+    )
+    if text is not None:
+        fields["text"] = text
+    if dry_run:
+        output.emit(
+            {"would_update": [c.name for c in clips], "fields": fields, "count": len(clips)},
+            fmt=ctx.obj["format"],
+        )
+        return
+    updated: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for clip in clips:
+        try:
+            clip.text.set(**fields)
+            updated.append(clip.name)
+        except errors.FusionError as exc:
+            skipped.append({"clip": clip.name, "reason": str(exc)})
+    output.emit(
+        {"updated": updated, "skipped": skipped, "count": len(updated)},
+        fmt=ctx.obj["format"],
+    )
+
+
+def _parse_color_option(color: str | None) -> Any | None:
+    """Allow ``--color`` to be a hex/name string or comma-separated r,g,b[,a]."""
+    if color is None:
+        return None
+    if "," in color:
+        parts = [p.strip() for p in color.split(",") if p.strip()]
+        return [float(p) for p in parts]
+    return color
 
 
 @app.command("mark")

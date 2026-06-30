@@ -102,6 +102,48 @@ Resolve's scripting API supports these as static clip properties. It does
 not expose reliable edit-page transition creation or general transform
 keyframe writes.
 
+### Add a styled title to the timeline
+
+```bash
+dvr timeline add-title --text "OPENING" --font "Open Sans" --size 0.12 \
+  --color "#ffcc00" --align center --at "01:00:02:00"
+```
+
+Or from Python, with chaining:
+
+```python
+from dvr import Resolve
+
+tl = Resolve().timeline.current
+tl.current_timecode = "01:00:02:00"
+tl.insert_title("Text+", text="OPENING", font="Open Sans", size=0.12, color="#ffcc00")
+```
+
+### Restyle every Text+ title already on the timeline
+
+```bash
+dvr clip text --where "name == 'Text+'" --color white --size 0.1 --align center
+```
+
+Non-text clips that match the filter are skipped and reported, so a broad
+filter is safe.
+
+### Keep titles in a declarative spec
+
+```yaml
+timelines:
+  - name: Edit_v2
+    titles:
+      - text: "OPENING TITLE"
+        at: "01:00:02:00"
+        size: 0.12
+        color: "#ffcc00"
+        align: center
+```
+
+`dvr apply` matches titles by their `text`, so re-running updates styling in
+place instead of stacking duplicates.
+
 ### Diff this timeline against last week's
 
 ```bash
@@ -267,8 +309,21 @@ r = Resolve()
 r.timeline.current.create_subtitles_from_audio(language="en", chars_per_line=42)
 ```
 
+Or straight from the CLI:
+
+```bash
+dvr timeline subtitles --language en --chars-per-line 42
+```
+
 The audio track has to exist on the timeline. Resolve will pop a
 progress bar in its UI; the call is fire-and-forget.
+
+### Generate spoken narration from text
+
+```bash
+dvr project generate-speech --text "Welcome back." --voice "Female 1" \
+  --speed 1.0 --pitch 0 --track 2
+```
 
 ---
 

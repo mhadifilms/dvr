@@ -620,7 +620,14 @@ def _h_clip_transform(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
 def _h_clip_crop(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     props = {
         key: args[key]
-        for key in ("crop_left", "crop_right", "crop_top", "crop_bottom", "crop_softness", "crop_retain")
+        for key in (
+            "crop_left",
+            "crop_right",
+            "crop_top",
+            "crop_bottom",
+            "crop_softness",
+            "crop_retain",
+        )
         if key in args
     }
     return _h_clip_set_properties(ctx, {**args, "properties": props})
@@ -812,9 +819,7 @@ def _h_media_deblur(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     result = target.remove_motion_blur(options or None)
     if isinstance(result, list):
         return {
-            "deblurred": [
-                {"original": orig.name, "deblurred": new.name} for orig, new in result
-            ]
+            "deblurred": [{"original": orig.name, "deblurred": new.name} for orig, new in result]
         }
     return {"deblurred": result.name if result is not None else None}
 
@@ -851,6 +856,12 @@ def _h_project_generate_speech(ctx: _Context, args: dict[str, Any]) -> dict[str,
     }
     if args.get("voice"):
         settings["VoiceModel"] = args["voice"]
+    if args.get("speed") is not None:
+        settings["Speed"] = float(args["speed"])
+    if args.get("pitch") is not None:
+        settings["Pitch"] = float(args["pitch"])
+    if args.get("filename"):
+        settings["Filename"] = args["filename"]
     if args.get("track") is not None:
         settings["AudioTrack"] = int(args["track"])
     timecode = args.get("timecode", "01:00:00:00")
@@ -922,6 +933,80 @@ def _h_timeline_append(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
             state={"requested_count": len(payload), "appended_count": len(appended)},
         )
     return {"timeline": tl.name, "appended": len(appended)}
+
+
+def _text_fields_from_args(args: dict[str, Any]) -> dict[str, Any]:
+    """Collect Text+ styling fields from MCP args (dropping unset ones)."""
+    fields: dict[str, Any] = {}
+    for key in (
+        "text",
+        "font",
+        "style",
+        "size",
+        "color",
+        "opacity",
+        "tracking",
+        "line_spacing",
+        "align",
+        "vertical_align",
+    ):
+        if args.get(key) is not None:
+            fields[key] = args[key]
+    if args.get("pos_x") is not None and args.get("pos_y") is not None:
+        fields["position"] = (float(args["pos_x"]), float(args["pos_y"]))
+    return fields
+
+
+def _h_timeline_add_title(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl = _timeline_for_args(ctx, args)
+    if args.get("timecode"):
+        tl.current_timecode = args["timecode"]
+    fields = _text_fields_from_args(args)
+    item = tl.insert_title(
+        args.get("title", "Text+"),
+        fusion=bool(args.get("fusion", True)),
+        **fields,
+    )
+    return {
+        "timeline": tl.name,
+        "inserted": item.name,
+        "title": args.get("title", "Text+"),
+        "fusion": bool(args.get("fusion", True)),
+        "styled": sorted(fields),
+    }
+
+
+def _h_clip_set_text(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    args = {"track_type": "video", **args}
+    tl, items = _select_timeline_items(ctx, args)
+    fields = _text_fields_from_args(args)
+    if bool(args.get("dry_run", False)):
+        return {
+            "timeline": tl.name,
+            "would_update": [it.name for it in items],
+            "count": len(items),
+            "fields": sorted(fields),
+        }
+    updated: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for item in items:
+        try:
+            item.text.set(**fields)
+            updated.append(item.name)
+        except errors.FusionError as exc:
+            skipped.append({"clip": item.name, "reason": str(exc)})
+    return {"timeline": tl.name, "updated": updated, "skipped": skipped, "count": len(updated)}
+
+
+def _h_timeline_create_subtitles(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl = _timeline_for_args(ctx, args)
+    tl.create_subtitles_from_audio(
+        language=args.get("language", "auto"),
+        chars_per_line=int(args.get("chars_per_line", 42)),
+        line_break_type=args.get("line_break_type", "Auto"),
+        preset=args.get("preset"),
+    )
+    return {"timeline": tl.name, "subtitles_created": True}
 
 
 def _h_interchange_export(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
@@ -1650,6 +1735,15 @@ def _build_registry() -> list[_ToolSpec]:
                 {
                     "text": {"type": "string"},
                     "voice": {"type": "string", "description": "Voice model, e.g. 'Female 1'."},
+                    "speed": {
+                        "type": "number",
+                        "description": "Speech speed multiplier (1.0 = normal).",
+                    },
+                    "pitch": {"type": "number", "description": "Voice pitch adjustment."},
+                    "filename": {
+                        "type": "string",
+                        "description": "Name for the generated audio clip.",
+                    },
                     "timecode": {"type": "string", "default": "01:00:00:00"},
                     "track": {"type": "integer"},
                     "add_to_timeline": {"type": "boolean", "default": True},
@@ -1657,6 +1751,97 @@ def _build_registry() -> list[_ToolSpec]:
                 required=["text"],
             ),
             handler=_h_project_generate_speech,
+        ),
+        _ToolSpec(
+            name="timeline_add_title",
+            description=(
+                "Insert a (Fusion) title on a timeline and customize its text. Defaults "
+                "to the built-in 'Text+'. Supports text, font, style, size, color "
+                "(hex/name/[r,g,b]), opacity, tracking, line_spacing, pos_x/pos_y, and "
+                "align/vertical_align. Seeks to `timecode` first when given."
+            ),
+            schema=_schema(
+                {
+                    "title": {"type": "string", "default": "Text+"},
+                    "fusion": {"type": "boolean", "default": True},
+                    "text": {"type": "string"},
+                    "font": {"type": "string"},
+                    "style": {"type": "string", "description": "Regular, Bold, Italic, ..."},
+                    "size": {"type": "number", "description": "Relative size, ~0.05-0.2."},
+                    "color": {
+                        "description": "Hex '#ffcc00', a name like 'white', or [r,g,b] floats.",
+                    },
+                    "opacity": {"type": "number", "description": "Text alpha, 0..1."},
+                    "tracking": {"type": "number", "description": "Letter spacing."},
+                    "line_spacing": {"type": "number"},
+                    "pos_x": {"type": "number", "description": "Layout center X, 0..1."},
+                    "pos_y": {"type": "number", "description": "Layout center Y, 0..1."},
+                    "align": {
+                        "type": "string",
+                        "enum": ["left", "center", "right"],
+                    },
+                    "vertical_align": {
+                        "type": "string",
+                        "enum": ["top", "center", "bottom"],
+                    },
+                    "timecode": {"type": "string", "description": "Seek here before inserting."},
+                    "timeline": {"type": "string"},
+                }
+            ),
+            handler=_h_timeline_add_title,
+        ),
+        _ToolSpec(
+            name="clip_set_text",
+            description=(
+                "Customize Text+ content/styling on timeline items selected by safe "
+                "filters. Only clips carrying a Fusion Text+ tool are updated; others "
+                "are reported as skipped. Same styling fields as timeline_add_title."
+            ),
+            schema=_schema(
+                {
+                    "text": {"type": "string"},
+                    "font": {"type": "string"},
+                    "style": {"type": "string"},
+                    "size": {"type": "number"},
+                    "color": {"description": "Hex '#ffcc00', a name, or [r,g,b] floats."},
+                    "opacity": {"type": "number"},
+                    "tracking": {"type": "number"},
+                    "line_spacing": {"type": "number"},
+                    "pos_x": {"type": "number"},
+                    "pos_y": {"type": "number"},
+                    "align": {"type": "string", "enum": ["left", "center", "right"]},
+                    "vertical_align": {"type": "string", "enum": ["top", "center", "bottom"]},
+                    "timeline": {"type": "string"},
+                    "track_type": {
+                        "type": "string",
+                        "enum": ["video", "audio", "subtitle"],
+                        "default": "video",
+                    },
+                    "track_index": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "name_contains": {"type": "string"},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_clip_set_text,
+        ),
+        _ToolSpec(
+            name="timeline_create_subtitles",
+            description=(
+                "Generate subtitles from a timeline's audio using Resolve's Whisper "
+                "engine (Studio). Supports language, chars_per_line, line_break_type, "
+                "and an optional caption preset."
+            ),
+            schema=_schema(
+                {
+                    "language": {"type": "string", "default": "auto"},
+                    "chars_per_line": {"type": "integer", "default": 42},
+                    "line_break_type": {"type": "string", "default": "Auto"},
+                    "preset": {"type": "string"},
+                    "timeline": {"type": "string"},
+                }
+            ),
+            handler=_h_timeline_create_subtitles,
         ),
         _ToolSpec(
             name="disable_background_tasks",

@@ -19,6 +19,13 @@ Spec schema (informal)
         fps: 24
         markers:                               # optional
           - {frame: 0, color: Blue, name: HEAD}
+        titles:                                # optional
+          - text: "OPENING TITLE"              # required; also the idempotency key
+            at: "01:00:02:00"                  # optional timecode to place it
+            font: "Open Sans"
+            size: 0.12
+            color: "#ffcc00"
+            align: center
 """
 
 from __future__ import annotations
@@ -169,6 +176,32 @@ class ClipOperationSpec:
     properties: dict[str, Any] = field(default_factory=dict)
 
 
+# Text+ styling keys accepted in a title spec, forwarded to ItemText.set().
+_TITLE_STYLE_KEYS: tuple[str, ...] = (
+    "font",
+    "style",
+    "size",
+    "color",
+    "opacity",
+    "tracking",
+    "line_spacing",
+    "position",
+    "align",
+    "vertical_align",
+)
+
+
+@dataclass
+class TitleSpec:
+    """A desired on-screen title, identified by its text for idempotency."""
+
+    text: str
+    title: str = "Text+"
+    at: str | None = None
+    fusion: bool = True
+    styling: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class TimelineSpec:
     name: str
@@ -176,6 +209,7 @@ class TimelineSpec:
     settings: dict[str, str] = field(default_factory=dict)
     markers: list[dict[str, Any]] = field(default_factory=list)
     clip_properties: list[ClipOperationSpec] = field(default_factory=list)
+    titles: list[TitleSpec] = field(default_factory=list)
 
 
 @dataclass
@@ -244,6 +278,7 @@ def parse_spec(data: dict[str, Any]) -> Spec:
                 state={"entry": entry},
             )
         clip_properties = _parse_clip_property_specs(entry)
+        titles = _parse_title_specs(entry)
         timelines.append(
             TimelineSpec(
                 name=str(entry["name"]),
@@ -251,6 +286,7 @@ def parse_spec(data: dict[str, Any]) -> Spec:
                 settings=dict(entry.get("settings", {}) or {}),
                 markers=list(entry.get("markers", []) or []),
                 clip_properties=clip_properties,
+                titles=titles,
             )
         )
     color_preset = data.get("color_preset")
@@ -315,6 +351,39 @@ def _parse_clip_property_specs(entry: dict[str, Any]) -> list[ClipOperationSpec]
             ClipOperationSpec(
                 selector=dict(selector),
                 properties=schema_mod.normalize_clip_properties(dict(props)),
+            )
+        )
+    return parsed
+
+
+def _parse_title_specs(entry: dict[str, Any]) -> list[TitleSpec]:
+    raw_titles = entry.get("titles", []) or []
+    if not isinstance(raw_titles, list):
+        raise errors.SpecError(
+            "Timeline titles must be a list.",
+            state={"timeline": entry.get("name"), "titles": raw_titles},
+        )
+    parsed: list[TitleSpec] = []
+    for raw in raw_titles:
+        if not isinstance(raw, dict):
+            raise errors.SpecError(
+                "Each title must be an object.",
+                state={"timeline": entry.get("name"), "title": raw},
+            )
+        if "text" not in raw or not str(raw["text"]).strip():
+            raise errors.SpecError(
+                "Each title requires a non-empty 'text' field.",
+                cause="Titles are matched by their text for idempotent re-runs.",
+                state={"timeline": entry.get("name"), "title": raw},
+            )
+        styling = {key: raw[key] for key in _TITLE_STYLE_KEYS if key in raw}
+        parsed.append(
+            TitleSpec(
+                text=str(raw["text"]),
+                title=str(raw.get("title", "Text+")),
+                at=str(raw["at"]) if raw.get("at") is not None else None,
+                fusion=bool(raw.get("fusion", True)),
+                styling=styling,
             )
         )
     return parsed
@@ -405,8 +474,34 @@ def plan(spec: Spec, resolve: Resolve) -> list[Action]:
                     },
                 )
             )
+        for title in tl.titles:
+            actions.append(
+                Action(
+                    op="ensure",
+                    target=f"timeline:{tl.name}/title:{title.text}",
+                    detail=", ".join(f"{k}={v}" for k, v in sorted(title.styling.items())),
+                    payload={
+                        "timeline": tl.name,
+                        "text": title.text,
+                        "title": title.title,
+                        "at": title.at,
+                        "styling": title.styling,
+                    },
+                )
+            )
 
     return actions
+
+
+def _find_text_item(timeline: Any, text: str) -> Any | None:
+    """Return the first video title whose text matches ``text`` (idempotency key)."""
+    for item in timeline.items("video"):
+        try:
+            if item.is_text and str(item.text.value) == str(text):
+                return item
+        except Exception:  # boundary
+            continue
+    return None
 
 
 def _selector_label(selector: dict[str, Any]) -> str:
@@ -436,7 +531,9 @@ def _select_timeline_items(timeline: Any, selector: dict[str, Any]) -> list[Any]
             return False
         if selector.get("end") is not None and int(item.end) != int(selector["end"]):
             return False
-        if selector.get("duration_lt") is not None and not item.duration < int(selector["duration_lt"]):
+        if selector.get("duration_lt") is not None and not item.duration < int(
+            selector["duration_lt"]
+        ):
             return False
         return not (
             selector.get("duration_gt") is not None
@@ -632,6 +729,31 @@ def apply(
 
             apply_or_record(action, apply_clip_properties)
 
+        for title_spec in tl_spec.titles:
+            title_action = Action(
+                op="ensure",
+                target=f"timeline:{tl_spec.name}/title:{title_spec.text}",
+                detail=", ".join(f"{k}={v}" for k, v in sorted(title_spec.styling.items())),
+                payload={
+                    "timeline": tl_spec.name,
+                    "text": title_spec.text,
+                    "title": title_spec.title,
+                    "at": title_spec.at,
+                    "styling": title_spec.styling,
+                },
+            )
+
+            def apply_title(timeline: Any = tl, ts: TitleSpec = title_spec) -> None:
+                existing = _find_text_item(timeline, ts.text)
+                if existing is not None:
+                    existing.text.set(text=ts.text, **ts.styling)
+                    return
+                if ts.at is not None:
+                    timeline.current_timecode = ts.at
+                timeline.insert_title(ts.title, fusion=ts.fusion, text=ts.text, **ts.styling)
+
+            apply_or_record(title_action, apply_title)
+
     if run_hooks:
         _run_hooks(spec.hooks, "after")
 
@@ -653,6 +775,7 @@ __all__ = [
     "Hook",
     "Spec",
     "TimelineSpec",
+    "TitleSpec",
     "apply",
     "load_spec",
     "parse_spec",
