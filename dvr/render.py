@@ -230,6 +230,49 @@ class RenderNamespace:
                 state={"requested": {"format": format_name, "codec": codec}, "actual": actual},
             )
 
+    # --- render mode / resolutions / LUTs --------------------------------
+
+    def render_mode(self) -> str:
+        """Current render mode: ``"individual"`` (clips) or ``"single"`` (clip)."""
+        value = int(self._project_raw.GetCurrentRenderMode())
+        return "single" if value == 1 else "individual"
+
+    def set_render_mode(self, mode: str | int) -> None:
+        """Set render mode. ``mode`` is ``"individual"``/``0`` or ``"single"``/``1``."""
+        if isinstance(mode, str):
+            lookup = {"individual": 0, "clips": 0, "single": 1, "clip": 1}
+            if mode.lower() not in lookup:
+                raise errors.RenderError(
+                    f"Unknown render mode {mode!r}.",
+                    fix="Use 'individual' or 'single'.",
+                    state={"requested": mode},
+                )
+            value = lookup[mode.lower()]
+        else:
+            value = int(mode)
+        if not self._project_raw.SetCurrentRenderMode(value):
+            raise errors.RenderError(
+                f"Could not set render mode to {mode!r}.",
+                cause="SetCurrentRenderMode returned False.",
+                state={"requested": mode},
+            )
+
+    def resolutions(
+        self, format_name: str | None = None, codec: str | None = None
+    ) -> list[dict[str, int]]:
+        """Valid render resolutions for a format/codec (or all if omitted)."""
+        if format_name is not None and codec is not None:
+            raw = self._project_raw.GetRenderResolutions(format_name, codec)
+        else:
+            raw = self._project_raw.GetRenderResolutions()
+        return [dict(r) for r in (raw or [])]
+
+    def refresh_lut_list(self) -> None:
+        """Refresh Resolve's LUT list so newly-added LUTs become settable."""
+        method = getattr(self._project_raw, "RefreshLUTList", None)
+        if callable(method):
+            method()
+
     def presets(self) -> list[str]:
         return list(self._project_raw.GetRenderPresetList() or [])
 

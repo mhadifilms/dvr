@@ -155,6 +155,43 @@ class Clip:
                 state={"clip": self.name},
             )
 
+    @property
+    def media_id(self) -> str:
+        """Resolve's media ID for this clip (``GetMediaId``)."""
+        method = getattr(self._raw, "GetMediaId", None)
+        return str(method() or "") if callable(method) else ""
+
+    @property
+    def unique_id(self) -> str:
+        """Stable unique ID for this clip (``GetUniqueId``)."""
+        method = getattr(self._raw, "GetUniqueId", None)
+        return str(method() or "") if callable(method) else ""
+
+    def get_third_party_metadata(self, key: str | None = None) -> Any:
+        """Read third-party (sidecar) metadata (``GetThirdPartyMetadata``, 18.5+)."""
+        method = getattr(self._raw, "GetThirdPartyMetadata", None)
+        if not callable(method):
+            return None
+        return method(key) if key else method()
+
+    def set_third_party_metadata(
+        self, key_or_dict: str | dict[str, Any], value: Any = None
+    ) -> None:
+        """Write third-party metadata (``SetThirdPartyMetadata``, 18.5+)."""
+        method = getattr(self._raw, "SetThirdPartyMetadata", None)
+        if not callable(method):
+            raise errors.MediaError(
+                "This Resolve build does not expose SetThirdPartyMetadata.",
+                state={"clip": self.name},
+            )
+        ok = method(key_or_dict) if isinstance(key_or_dict, dict) else method(key_or_dict, value)
+        if not ok:
+            raise errors.MediaError(
+                f"Could not set third-party metadata on clip {self.name!r}.",
+                cause="SetThirdPartyMetadata returned False.",
+                state={"clip": self.name},
+            )
+
     # --- flags / colors / markers ---------------------------------------
 
     @property
@@ -207,6 +244,30 @@ class Clip:
             self._raw.DeleteMarkersByColor(color)
         else:
             self._raw.DeleteMarkersByColor("All")
+
+    def get_marker_by_custom_data(self, custom_data: str) -> dict[int, dict[str, Any]]:
+        """Return the first marker matching ``custom_data`` (``GetMarkerByCustomData``)."""
+        return dict(self._raw.GetMarkerByCustomData(custom_data) or {})
+
+    def get_marker_custom_data(self, frame: int) -> str:
+        """Return the custom data string for the marker at ``frame``."""
+        return str(self._raw.GetMarkerCustomData(frame) or "")
+
+    def update_marker_custom_data(self, frame: int, custom_data: str) -> None:
+        """Set the custom data for the marker at ``frame`` (``UpdateMarkerCustomData``)."""
+        if not self._raw.UpdateMarkerCustomData(frame, custom_data):
+            raise errors.MediaError(
+                f"Could not update marker custom data at frame {frame}.",
+                state={"clip": self.name, "frame": frame},
+            )
+
+    def delete_marker_by_custom_data(self, custom_data: str) -> None:
+        """Delete the first marker matching ``custom_data``."""
+        if not self._raw.DeleteMarkerByCustomData(custom_data):
+            raise errors.MediaError(
+                f"Could not delete marker with custom data {custom_data!r}.",
+                state={"clip": self.name, "custom_data": custom_data},
+            )
 
     # --- in/out ---------------------------------------------------------
 
@@ -565,6 +626,12 @@ class Folder:
 
     # --- collaboration / export ----------------------------------------
 
+    @property
+    def unique_id(self) -> str:
+        """Stable unique ID for this folder (``GetUniqueId``)."""
+        method = getattr(self._raw, "GetUniqueId", None)
+        return str(method() or "") if callable(method) else ""
+
     def is_stale(self) -> bool:
         """In collaboration mode, returns True if the folder needs refresh."""
         return bool(self._raw.GetIsFolderStale())
@@ -717,6 +784,35 @@ class MediaStorage:
 
     def reveal(self, path: str) -> None:
         self._raw.RevealInStorage(path)
+
+    def add_clip_mattes(
+        self, clip: Clip, paths: Iterable[str], *, stereo_eye: str | None = None
+    ) -> None:
+        """Add media files as mattes for ``clip`` (optionally a stereo eye)."""
+        path_list = list(paths)
+        ok = (
+            self._raw.AddClipMattesToMediaPool(clip.raw, path_list, stereo_eye)
+            if stereo_eye is not None
+            else self._raw.AddClipMattesToMediaPool(clip.raw, path_list)
+        )
+        if not ok:
+            raise errors.MediaError(
+                f"Could not add {len(path_list)} matte(s) to clip {clip.name!r}.",
+                cause="AddClipMattesToMediaPool returned False.",
+                state={"clip": clip.name, "paths": path_list, "stereo_eye": stereo_eye},
+            )
+
+    def add_timeline_mattes(self, paths: Iterable[str]) -> list[Clip]:
+        """Add media files as timeline mattes in the current pool folder."""
+        path_list = list(paths)
+        result = self._raw.AddTimelineMattesToMediaPool(path_list)
+        if not result:
+            raise errors.MediaError(
+                "Could not add timeline mattes.",
+                cause="AddTimelineMattesToMediaPool returned no items.",
+                state={"paths": path_list},
+            )
+        return [Clip(it) for it in result]
 
     def add_to_pool(
         self,
@@ -906,9 +1002,7 @@ class MediaPool:
         # proxies whose type confuses ``isinstance(_, Iterable)`` (raises
         # ``TypeError: issubclass() arg 1 must be a class``), so we detect
         # them by their fusionscript surface (GetName) rather than via ABCs.
-        is_single_handle = (
-            hasattr(timelines, "GetName") and not hasattr(timelines, "__iter__")
-        )
+        is_single_handle = hasattr(timelines, "GetName") and not hasattr(timelines, "__iter__")
         if isinstance(timelines, (_Timeline, str)) or is_single_handle:
             timelines = [timelines]
         else:
@@ -1268,6 +1362,87 @@ class MediaPool:
                 f"Could not move {len(raws)} clip(s) to {target.name!r}.",
                 state={"count": len(raws), "target_folder": target.name},
             )
+
+    def move_folders(self, folders: Iterable[Folder], target: Folder) -> None:
+        """Move whole folders into a target folder (``MoveFolders``)."""
+        raws = [f.raw for f in folders]
+        if not raws:
+            return
+        if not self._raw.MoveFolders(raws, target.raw):
+            raise errors.MediaError(
+                f"Could not move {len(raws)} folder(s) to {target.name!r}.",
+                state={"count": len(raws), "target_folder": target.name},
+            )
+
+    # --- mattes ---------------------------------------------------------
+
+    def clip_mattes(self, clip: Clip) -> List[str]:  # noqa: UP006
+        """Return matte file paths for ``clip`` (``GetClipMatteList``)."""
+        return [str(p) for p in (self._raw.GetClipMatteList(clip.raw) or [])]
+
+    def timeline_mattes(self, folder: Folder) -> list[Clip]:
+        """Return timeline mattes in ``folder`` (``GetTimelineMatteList``)."""
+        return [Clip(it) for it in (self._raw.GetTimelineMatteList(folder.raw) or [])]
+
+    def delete_clip_mattes(self, clip: Clip, paths: Iterable[str]) -> None:
+        """Delete the named matte files for ``clip`` (``DeleteClipMattes``)."""
+        path_list = list(paths)
+        if not self._raw.DeleteClipMattes(clip.raw, path_list):
+            raise errors.MediaError(
+                f"Could not delete mattes for clip {clip.name!r}.",
+                state={"clip": clip.name, "paths": path_list},
+            )
+
+    # --- stereo / metadata / bins --------------------------------------
+
+    def create_stereo_clip(self, left: Clip, right: Clip) -> Clip:
+        """Create a stereoscopic 3D clip from left/right eyes (``CreateStereoClip``)."""
+        raw = self._raw.CreateStereoClip(left.raw, right.raw)
+        if raw is None:
+            raise errors.MediaError(
+                "Could not create stereo clip.",
+                cause="CreateStereoClip returned None.",
+                state={"left": left.name, "right": right.name},
+            )
+        return Clip(raw)
+
+    def export_metadata(self, file_name: str, clips: Iterable[Clip] | None = None) -> None:
+        """Export clip metadata to a CSV file (``ExportMetadata``).
+
+        With no ``clips``, exports metadata for every clip in the pool.
+        """
+        ok = (
+            self._raw.ExportMetadata(file_name, [c.raw for c in clips])
+            if clips is not None
+            else self._raw.ExportMetadata(file_name)
+        )
+        if not ok:
+            raise errors.MediaError(
+                f"Could not export metadata to {file_name!r}.",
+                cause="ExportMetadata returned False.",
+                state={"file_name": file_name},
+            )
+
+    def import_folder_from_file(self, file_path: str, *, source_clips_path: str = "") -> bool:
+        """Import a media-pool bin from a ``.drb`` file (``ImportFolderFromFile``)."""
+        ok = (
+            self._raw.ImportFolderFromFile(file_path, source_clips_path)
+            if source_clips_path
+            else self._raw.ImportFolderFromFile(file_path)
+        )
+        if not ok:
+            raise errors.MediaError(
+                f"Could not import bin from {file_path!r}.",
+                cause="ImportFolderFromFile returned False — file may be missing or invalid.",
+                state={"file_path": file_path},
+            )
+        return True
+
+    @property
+    def unique_id(self) -> str:
+        """Stable unique ID for the media pool (``GetUniqueId``)."""
+        method = getattr(self._raw, "GetUniqueId", None)
+        return str(method() or "") if callable(method) else ""
 
     def relink(self, clips: Iterable[Clip], folder: str) -> None:
         """Relink clips to a folder of replacement files on disk."""

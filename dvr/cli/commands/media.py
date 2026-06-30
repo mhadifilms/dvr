@@ -57,6 +57,34 @@ def inspect_pool(ctx: typer.Context) -> None:
     output.emit(project.media.inspect(), fmt=ctx.obj["format"], headline="media pool")
 
 
+@app.command("export-metadata")
+def export_metadata(
+    ctx: typer.Context,
+    file: Annotated[str, typer.Argument(help="Output CSV path.")],
+) -> None:
+    """Export metadata for every media-pool clip to a CSV file."""
+    project = _current_project(ctx)
+    project.media.export_metadata(file)  # type: ignore[attr-defined]
+    output.emit({"exported": file}, fmt=ctx.obj["format"])
+
+
+@app.command("import-bin")
+def import_bin(
+    ctx: typer.Context,
+    file: Annotated[str, typer.Argument(help="Path to a .drb bin file.")],
+    source_clips: Annotated[
+        str | None,
+        typer.Option("--source-clips", help="Folder to search for source clips."),
+    ] = None,
+) -> None:
+    """Import a media-pool bin from a .drb file (Resolve 18+)."""
+    project = _current_project(ctx)
+    project.media.import_folder_from_file(  # type: ignore[attr-defined]
+        file, source_clips_path=source_clips or ""
+    )
+    output.emit({"imported": file}, fmt=ctx.obj["format"])
+
+
 @app.command("bins")
 def bins(ctx: typer.Context) -> None:
     """List bins in the current project's media pool."""
@@ -244,9 +272,7 @@ def deblur_cmd(
     codec: Annotated[
         str | None, typer.Option("--codec", help="Output codec, e.g. H264, ProRes422.")
     ] = None,
-    extreme: Annotated[
-        bool, typer.Option("--extreme", help="Use extreme deblur mode.")
-    ] = False,
+    extreme: Annotated[bool, typer.Option("--extreme", help="Use extreme deblur mode.")] = False,
 ) -> None:
     """Apply AI motion deblur, rendering new clips (Resolve 21+, Studio)."""
     options: dict[str, object] = {}
@@ -269,9 +295,7 @@ def deblur_cmd(
 @app.command("analyze")
 def analyze_cmd(
     ctx: typer.Context,
-    kind: Annotated[
-        str, typer.Argument(help="Analysis type: intellisearch | slate.")
-    ],
+    kind: Annotated[str, typer.Argument(help="Analysis type: intellisearch | slate.")],
     bin: Annotated[str | None, typer.Argument(help="Bin to analyze. Defaults to root.")] = None,
     clip: Annotated[
         str | None, typer.Option("--clip", help="Analyze a single clip by name instead.")

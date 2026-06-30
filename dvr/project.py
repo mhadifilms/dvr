@@ -243,6 +243,113 @@ class Project:
             )
         return Clip(raw)
 
+    # --- identity ---------------------------------------------------------
+
+    @property
+    def unique_id(self) -> str:
+        """Stable unique ID for this project (``GetUniqueId``)."""
+        method = getattr(self._raw, "GetUniqueId", None)
+        return str(method() or "") if callable(method) else ""
+
+    # --- color groups -----------------------------------------------------
+
+    def color_groups(self) -> list[Any]:
+        """Return the project's color groups as :class:`dvr.color.ColorGroup`."""
+        from .color import ColorGroup
+
+        method = getattr(self._raw, "GetColorGroupsList", None)
+        if not callable(method):
+            return []
+        return [ColorGroup(g) for g in (method() or [])]
+
+    def add_color_group(self, name: str) -> Any:
+        """Create a new color group and return it (:class:`dvr.color.ColorGroup`)."""
+        from .color import ColorGroup
+
+        create = getattr(self._raw, "AddColorGroup", None)
+        if not callable(create):
+            raise errors.ProjectError("This Resolve build does not expose AddColorGroup.")
+        raw = create(name)
+        if raw is None:
+            raise errors.ProjectError(
+                f"Could not create color group {name!r}.",
+                cause="AddColorGroup returned None — the name may not be unique.",
+                state={"name": name},
+            )
+        return ColorGroup(raw)
+
+    def delete_color_group(self, group: Any) -> None:
+        """Delete a color group (accepts a ColorGroup wrapper or raw handle)."""
+        delete = getattr(self._raw, "DeleteColorGroup", None)
+        if not callable(delete):
+            raise errors.ProjectError("This Resolve build does not expose DeleteColorGroup.")
+        raw = getattr(group, "raw", group)
+        if not delete(raw):
+            raise errors.ProjectError(
+                "Could not delete color group.",
+                cause="DeleteColorGroup returned False.",
+            )
+
+    # --- stills / quick export -------------------------------------------
+
+    def export_current_frame_as_still(self, file_path: str) -> None:
+        """Export the current Color-page frame as a still image (Resolve 18.5+)."""
+        export = requires_method(
+            self._raw,
+            "ExportCurrentFrameAsStill",
+            feature="Export current frame as still",
+            error=errors.ProjectError,
+            min_version="18.5",
+        )
+        if not export(file_path):
+            raise errors.ProjectError(
+                f"Could not export current frame to {file_path!r}.",
+                cause="ExportCurrentFrameAsStill returned False.",
+                state={"file_path": file_path},
+            )
+
+    def quick_export_presets(self) -> list[str]:
+        """List available Quick Export render presets (Resolve 18.6+)."""
+        method = getattr(self._raw, "GetQuickExportRenderPresets", None)
+        if not callable(method):
+            return []
+        return [str(p) for p in (method() or [])]
+
+    def quick_export(
+        self, file_path: str, preset: str, *, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Render with Quick Export to ``file_path`` using ``preset`` (Resolve 18.6+)."""
+        render = requires_method(
+            self._raw,
+            "RenderWithQuickExport",
+            feature="Quick Export",
+            error=errors.ProjectError,
+            min_version="18.6",
+        )
+        settings: dict[str, Any] = {"TargetDir": file_path, "RenderPreset": preset}
+        if params:
+            settings.update(params)
+        result = render(settings)
+        if not result:
+            raise errors.ProjectError(
+                f"Quick Export with preset {preset!r} failed.",
+                cause="RenderWithQuickExport returned a falsy value.",
+                state={"file_path": file_path, "preset": preset},
+            )
+        return dict(result) if isinstance(result, dict) else {"result": result}
+
+    def load_burn_in_preset(self, name: str) -> None:
+        """Load a data-burn-in preset into the project (Resolve 18+)."""
+        load = getattr(self._raw, "LoadBurnInPreset", None)
+        if not callable(load):
+            raise errors.ProjectError("This Resolve build does not expose LoadBurnInPreset.")
+        if not load(name):
+            raise errors.ProjectError(
+                f"Could not load burn-in preset {name!r}.",
+                cause="LoadBurnInPreset returned False — preset may not exist.",
+                state={"name": name},
+            )
+
     # --- save / close -----------------------------------------------------
 
     def save(self) -> None:
@@ -493,6 +600,132 @@ class ProjectNamespace:
                 cause="ExportProject returned False.",
                 fix="Check write permissions and that the project name exists.",
                 state={"name": name, "file_path": file_path},
+            )
+
+    def restore(self, file_path: str, name: str | None = None) -> Project:
+        """Restore a project from a backup folder/file path (``RestoreProject``)."""
+        ok = (
+            self._manager.RestoreProject(file_path, name)
+            if name
+            else self._manager.RestoreProject(file_path)
+        )
+        if not ok:
+            raise errors.ProjectError(
+                f"Failed to restore project from {file_path!r}.",
+                cause="RestoreProject returned False.",
+                state={"file_path": file_path, "requested_name": name},
+            )
+        return self.load(name or _guess_drp_name(file_path))
+
+    # --- project-manager (database) folders -------------------------------
+
+    def create_folder(self, name: str) -> None:
+        """Create a project-database folder (not a media bin)."""
+        if not self._manager.CreateFolder(name):
+            raise errors.ProjectError(
+                f"Could not create PM folder {name!r}.",
+                cause="CreateFolder returned False — the name may not be unique.",
+                state={"name": name, "existing": self.folders()},
+            )
+
+    def delete_folder(self, name: str) -> None:
+        """Delete a project-database folder."""
+        if not self._manager.DeleteFolder(name):
+            raise errors.ProjectError(
+                f"Could not delete PM folder {name!r}.",
+                state={"name": name, "existing": self.folders()},
+            )
+
+    def open_folder(self, name: str) -> None:
+        """Open a project-database folder by name."""
+        if not self._manager.OpenFolder(name):
+            raise errors.ProjectError(
+                f"Could not open PM folder {name!r}.",
+                state={"name": name, "existing": self.folders()},
+            )
+
+    def goto_root_folder(self) -> None:
+        """Navigate to the root project-database folder."""
+        if not self._manager.GotoRootFolder():
+            raise errors.ProjectError("Could not go to the root PM folder.")
+
+    def goto_parent_folder(self) -> None:
+        """Navigate to the parent of the current project-database folder."""
+        if not self._manager.GotoParentFolder():
+            raise errors.ProjectError("Could not go to the parent PM folder.")
+
+    def current_folder(self) -> str:
+        """Return the current project-database folder name."""
+        return str(self._manager.GetCurrentFolder() or "")
+
+    # --- databases --------------------------------------------------------
+
+    def current_database(self) -> dict[str, Any]:
+        """Return the current database connection info (``GetCurrentDatabase``)."""
+        return dict(self._manager.GetCurrentDatabase() or {})
+
+    def databases(self) -> List[dict[str, Any]]:  # noqa: UP006
+        """List all configured databases (``GetDatabaseList``)."""
+        return [dict(d) for d in (self._manager.GetDatabaseList() or [])]
+
+    def set_current_database(self, info: dict[str, Any]) -> None:
+        """Switch the current database connection (``SetCurrentDatabase``).
+
+        ``info`` keys: ``DbType`` ('Disk' or 'PostgreSQL'), ``DbName``, and
+        optional ``IpAddress``. Closes any open project.
+        """
+        if not self._manager.SetCurrentDatabase(info):
+            raise errors.ProjectError(
+                "Could not switch database.",
+                cause="SetCurrentDatabase returned False.",
+                state={"requested": info, "available": self.databases()},
+            )
+
+    # --- cloud projects (Resolve 18.6+) -----------------------------------
+
+    def create_cloud_project(self, settings: dict[str, Any]) -> Project:
+        """Create a DaVinci Cloud project from a cloud-settings dict."""
+        create = requires_method(
+            self._manager,
+            "CreateCloudProject",
+            feature="DaVinci Cloud projects",
+            error=errors.ProjectError,
+        )
+        raw = create(settings)
+        if raw is None:
+            raise errors.ProjectError(
+                "Could not create cloud project.",
+                cause="CreateCloudProject returned None.",
+                state={"settings": settings},
+            )
+        return Project(raw, self._manager)
+
+    def import_cloud_project(self, file_path: str, settings: dict[str, Any]) -> None:
+        """Import a DaVinci Cloud project (``ImportCloudProject``)."""
+        import_cloud = requires_method(
+            self._manager,
+            "ImportCloudProject",
+            feature="DaVinci Cloud projects",
+            error=errors.ProjectError,
+        )
+        if not import_cloud(file_path, settings):
+            raise errors.ProjectError(
+                f"Could not import cloud project from {file_path!r}.",
+                state={"file_path": file_path, "settings": settings},
+            )
+
+    def restore_cloud_project(self, folder_path: str, settings: dict[str, Any]) -> None:
+        """Restore a DaVinci Cloud project (``RestoreCloudProject``)."""
+        restore_cloud = requires_method(
+            self._manager,
+            "RestoreCloudProject",
+            feature="DaVinci Cloud projects",
+            error=errors.ProjectError,
+        )
+        if not restore_cloud(folder_path, settings):
+            raise errors.ProjectError(
+                f"Could not restore cloud project from {folder_path!r}.",
+                state={"folder_path": folder_path, "settings": settings},
             )
 
     # --- context manager --------------------------------------------------

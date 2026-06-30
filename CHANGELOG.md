@@ -32,6 +32,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subtitles` and the `timeline_create_subtitles` tool wrap
   `Timeline.create_subtitles_from_audio` with its language, characters-per-line,
   line-break, and preset options.
+- Broad expansion of the wrapped DaVinci Resolve scripting surface so far
+  reachable only through `.raw`/`eval`:
+  - App: `app.fusion` (the global Fusion handle), UI layout presets
+    (`save_layout`/`load_layout`/`update_layout`/`import_layout`/
+    `export_layout`/`delete_layout`), and Color-page `keyframe_mode`.
+  - ProjectManager: `restore()`, database management (`current_database`,
+    `databases`, `set_current_database`), project-database folder navigation
+    (`create_folder`/`delete_folder`/`open_folder`/`goto_root_folder`/
+    `goto_parent_folder`/`current_folder`), and DaVinci Cloud projects
+    (`create_cloud_project`/`import_cloud_project`/`restore_cloud_project`).
+  - Project: color groups (`color_groups`/`add_color_group`/
+    `delete_color_group`), `export_current_frame_as_still`, Quick Export
+    (`quick_export_presets`/`quick_export`), `load_burn_in_preset`, and
+    `unique_id`.
+  - Render: render mode get/set, `resolutions()`, and `refresh_lut_list()`.
+  - Media: clip/timeline mattes (`add_clip_mattes`/`add_timeline_mattes`/
+    `clip_mattes`/`timeline_mattes`/`delete_clip_mattes`), `move_folders`,
+    `create_stereo_clip`, `export_metadata`, `import_folder_from_file` (.drb),
+    and `unique_id` on pool/folder/clip; clip `media_id`, third-party
+    metadata, and marker custom-data accessors.
+  - Timeline: settable `start_timecode`, `insert_generator` (standard /
+    Fusion / OFX), `insert_fusion_composition`, `create_fusion_clip`,
+    `import_into`, `set_clips_linked`, `current_video_item`,
+    `current_clip_thumbnail`, `grab_still`/`grab_all_stills`,
+    `convert_to_stereo`, `analyze_dolby_vision`, `unique_id`, and marker
+    custom-data on `MarkerCollection`.
+  - TimelineItem: `left_offset`/`right_offset`/`handles`, `fusion_comp_count`,
+    `unique_id`, `update_sidecar`, stereo convergence / floating-window
+    params, and marker custom-data accessors.
+  - CLI: `dvr timeline start-tc | add-generator | grab-stills | import-into`,
+    `dvr render mode | resolutions | refresh-luts`, `dvr project color-groups |
+    export-still | quick-export`, and `dvr media export-metadata | import-bin`.
+  - MCP: `timeline_set_start_timecode`, `timeline_add_generator`,
+    `timeline_grab_stills`, `timeline_import_into`, `render_mode`,
+    `render_resolutions`, `render_refresh_luts`, `project_color_groups`,
+    `project_export_still`, `media_export_metadata`, and `media_import_bin`.
 
 ## [1.3.0] - 2026-06-25
 

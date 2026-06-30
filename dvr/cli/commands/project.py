@@ -135,6 +135,58 @@ def _current(ctx: typer.Context):  # type: ignore[no-untyped-def]
     return proj
 
 
+@app.command("color-groups")
+def color_groups(
+    ctx: typer.Context,
+    add: Annotated[str | None, typer.Option("--add", help="Create a color group by name.")] = None,
+    delete: Annotated[
+        str | None, typer.Option("--delete", help="Delete a color group by name.")
+    ] = None,
+) -> None:
+    """List, create, or delete project color groups."""
+    proj = _current(ctx)
+    if add:
+        group = proj.add_color_group(add)
+        output.emit({"created": group.name}, fmt=ctx.obj["format"])
+        return
+    if delete:
+        match = next((g for g in proj.color_groups() if g.name == delete), None)
+        if match is None:
+            typer.echo(f"No color group named {delete!r}.", err=True)
+            raise typer.Exit(1)
+        proj.delete_color_group(match)
+        output.emit({"deleted": delete}, fmt=ctx.obj["format"])
+        return
+    output.emit(
+        [{"name": g.name} for g in proj.color_groups()],
+        fmt=ctx.obj["format"],
+        headline="color groups",
+    )
+
+
+@app.command("export-still")
+def export_still(
+    ctx: typer.Context,
+    file: Annotated[str, typer.Argument(help="Output image path for the current Color frame.")],
+) -> None:
+    """Export the current Color-page frame as a still (Resolve 18.5+)."""
+    proj = _current(ctx)
+    proj.export_current_frame_as_still(file)
+    output.emit({"exported": file}, fmt=ctx.obj["format"])
+
+
+@app.command("quick-export")
+def quick_export(
+    ctx: typer.Context,
+    file: Annotated[str, typer.Argument(help="Output directory/path.")],
+    preset: Annotated[str, typer.Option("--preset", help="Quick Export preset name.")],
+) -> None:
+    """Render the current timeline with a Quick Export preset (Resolve 18.6+)."""
+    proj = _current(ctx)
+    result = proj.quick_export(file, preset)
+    output.emit({"quick_export": result, "preset": preset}, fmt=ctx.obj["format"])
+
+
 @app.command("reset-intellisearch")
 def reset_intellisearch(ctx: typer.Context) -> None:
     """Clear Intellisearch analysis data for the current project (Resolve 21+)."""

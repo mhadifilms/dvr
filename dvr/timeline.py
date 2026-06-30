@@ -32,7 +32,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` method shadow
 
 from . import errors
-from ._wrap import require
+from ._wrap import require, requires_method
 
 if TYPE_CHECKING:
     from .color import ColorOps
@@ -201,6 +201,30 @@ class TimelineItem:
                 },
             )
 
+    def get_marker_by_custom_data(self, custom_data: str) -> dict[int, dict[str, Any]]:
+        """Return the first marker matching ``custom_data`` (``GetMarkerByCustomData``)."""
+        return dict(self._raw.GetMarkerByCustomData(custom_data) or {})
+
+    def get_marker_custom_data(self, frame: int) -> str:
+        """Return the custom data string for the marker at ``frame``."""
+        return str(self._raw.GetMarkerCustomData(frame) or "")
+
+    def update_marker_custom_data(self, frame: int, custom_data: str) -> None:
+        """Set the custom data for the marker at ``frame`` (``UpdateMarkerCustomData``)."""
+        if not self._raw.UpdateMarkerCustomData(frame, custom_data):
+            raise errors.ClipError(
+                f"Could not update marker custom data at frame {frame}.",
+                state={"item": self.name, "frame": frame},
+            )
+
+    def delete_marker_by_custom_data(self, custom_data: str) -> None:
+        """Delete the first marker matching ``custom_data``."""
+        if not self._raw.DeleteMarkerByCustomData(custom_data):
+            raise errors.ClipError(
+                f"Could not delete marker with custom data {custom_data!r}.",
+                state={"item": self.name, "custom_data": custom_data},
+            )
+
     def replace(self, source_path: str, *, preserve_subclip: bool = True) -> None:
         """Relink to a new source file. Preserves grades / Fusion / tracking."""
         mp_item = self._raw.GetMediaPoolItem()
@@ -233,6 +257,61 @@ class TimelineItem:
         cross-referencing against the source file.
         """
         return (int(self._raw.GetSourceStartFrame()), int(self._raw.GetSourceEndFrame()))
+
+    @property
+    def left_offset(self) -> int:
+        """Max extension (frames) available on the left/head handle."""
+        return int(self._raw.GetLeftOffset())
+
+    @property
+    def right_offset(self) -> int:
+        """Max extension (frames) available on the right/tail handle."""
+        return int(self._raw.GetRightOffset())
+
+    @property
+    def handles(self) -> tuple[int, int]:
+        """``(left_offset, right_offset)`` available trim handles, in frames."""
+        return (self.left_offset, self.right_offset)
+
+    @property
+    def unique_id(self) -> str:
+        """Stable unique ID for this timeline item (``GetUniqueId``)."""
+        method = getattr(self._raw, "GetUniqueId", None)
+        return str(method() or "") if callable(method) else ""
+
+    @property
+    def fusion_comp_count(self) -> int:
+        """Number of Fusion compositions on this item (``GetFusionCompCount``)."""
+        method = getattr(self._raw, "GetFusionCompCount", None)
+        return int(method() or 0) if callable(method) else 0
+
+    def update_sidecar(self) -> bool:
+        """Update the BRAW/.sidecar or R3D .rmd file for this clip (``UpdateSidecar``)."""
+        method = getattr(self._raw, "UpdateSidecar", None)
+        if not callable(method):
+            raise errors.ClipError("This Resolve build does not expose UpdateSidecar.")
+        return bool(method())
+
+    # --- stereoscopic 3D --------------------------------------------------
+
+    def stereo_convergence(self) -> dict[float, Any]:
+        """Keyframe offset -> convergence value (``GetStereoConvergenceValues``)."""
+        return dict(self._raw.GetStereoConvergenceValues() or {})
+
+    def stereo_floating_window(self, eye: str = "left") -> dict[float, Any]:
+        """Floating-window keyframes for the ``left`` or ``right`` eye."""
+        key = eye.strip().lower()
+        if key not in ("left", "right"):
+            raise errors.ClipError(
+                f"Stereo eye must be 'left' or 'right', got {eye!r}.",
+                state={"eye": eye},
+            )
+        method_name = (
+            "GetStereoLeftFloatingWindowParams"
+            if key == "left"
+            else "GetStereoRightFloatingWindowParams"
+        )
+        return dict(getattr(self._raw, method_name)() or {})
 
     @property
     def is_text(self) -> bool:
@@ -1365,6 +1444,30 @@ class MarkerCollection:
         """Remove every marker of the given color."""
         self._timeline.raw.DeleteMarkersByColor(color)
 
+    def get_by_custom_data(self, custom_data: str) -> dict[int, dict[str, Any]]:
+        """Return the first marker matching ``custom_data`` (``GetMarkerByCustomData``)."""
+        return dict(self._timeline.raw.GetMarkerByCustomData(custom_data) or {})
+
+    def get_custom_data(self, frame: int) -> str:
+        """Return the custom data string for the marker at ``frame``."""
+        return str(self._timeline.raw.GetMarkerCustomData(frame) or "")
+
+    def update_custom_data(self, frame: int, custom_data: str) -> None:
+        """Set the custom data for the marker at ``frame`` (``UpdateMarkerCustomData``)."""
+        if not self._timeline.raw.UpdateMarkerCustomData(frame, custom_data):
+            raise errors.TimelineError(
+                f"Could not update marker custom data at frame {frame}.",
+                state={"frame": frame},
+            )
+
+    def remove_by_custom_data(self, custom_data: str) -> None:
+        """Delete the first marker matching ``custom_data`` (``DeleteMarkerByCustomData``)."""
+        if not self._timeline.raw.DeleteMarkerByCustomData(custom_data):
+            raise errors.TimelineError(
+                f"Could not delete marker with custom data {custom_data!r}.",
+                state={"custom_data": custom_data},
+            )
+
     def find(
         self,
         *,
@@ -1449,6 +1552,21 @@ class Timeline:
     @property
     def start_timecode(self) -> str:
         return self._raw.GetStartTimecode()
+
+    @start_timecode.setter
+    def start_timecode(self, value: str) -> None:
+        if not self._raw.SetStartTimecode(value):
+            raise errors.TimelineError(
+                f"Could not set timeline start timecode to {value!r}.",
+                cause="SetStartTimecode returned False — value may be invalid.",
+                state={"requested": value, "current": self._raw.GetStartTimecode()},
+            )
+
+    @property
+    def unique_id(self) -> str:
+        """Stable unique ID for this timeline (``GetUniqueId``)."""
+        method = getattr(self._raw, "GetUniqueId", None)
+        return str(method() or "") if callable(method) else ""
 
     @property
     def current_timecode(self) -> str:
@@ -1771,6 +1889,172 @@ class Timeline:
                 vertical_align=vertical_align,
             )
         return item
+
+    def insert_generator(
+        self,
+        name: str,
+        *,
+        fusion: bool = False,
+        ofx: bool = False,
+    ) -> TimelineItem:
+        """Insert a generator at the playhead and return the new item.
+
+        ``fusion=True`` inserts a Fusion generator, ``ofx=True`` an OFX
+        generator; otherwise a standard generator (``InsertGeneratorIntoTimeline``).
+        """
+        if fusion and ofx:
+            raise errors.TimelineError("Pass at most one of fusion=/ofx=.")
+        method_name = (
+            "InsertFusionGeneratorIntoTimeline"
+            if fusion
+            else "InsertOFXGeneratorIntoTimeline"
+            if ofx
+            else "InsertGeneratorIntoTimeline"
+        )
+        return self._insert_named(method_name, name, kind="generator")
+
+    def insert_fusion_composition(self) -> TimelineItem:
+        """Insert an empty Fusion composition at the playhead."""
+        insert = getattr(self._raw, "InsertFusionCompositionIntoTimeline", None)
+        if not callable(insert):
+            raise errors.TimelineError(
+                "This Resolve build cannot insert Fusion compositions.",
+                cause="InsertFusionCompositionIntoTimeline is unavailable.",
+            )
+        raw_item = insert()
+        if raw_item is None:
+            raise errors.TimelineError(
+                "Could not insert a Fusion composition.",
+                cause="InsertFusionCompositionIntoTimeline returned None.",
+                state={"timeline": self.name},
+            )
+        return TimelineItem(
+            raw_item, track_type="video", track_index=self._locate_video_track_index(raw_item)
+        )
+
+    def _insert_named(self, method_name: str, name: str, *, kind: str) -> TimelineItem:
+        insert = getattr(self._raw, method_name, None)
+        if not callable(insert):
+            raise errors.TimelineError(
+                f"This DaVinci Resolve build cannot insert via {method_name}().",
+                state={"timeline": self.name, "name": name},
+            )
+        raw_item = insert(name)
+        if raw_item is None:
+            raise errors.TimelineError(
+                f"Could not insert {kind} {name!r} into timeline {self.name!r}.",
+                cause=f"{method_name} returned None — the {kind} name may be unknown to Resolve.",
+                fix=f"Use the exact name from Resolve's Effects list for this {kind}.",
+                state={"timeline": self.name, "name": name},
+            )
+        return TimelineItem(
+            raw_item, track_type="video", track_index=self._locate_video_track_index(raw_item)
+        )
+
+    # --- fusion clips / stills / linking ----------------------------------
+
+    def create_fusion_clip(self, items: Iterable[TimelineItem]) -> TimelineItem:
+        """Combine timeline items into a single Fusion clip (``CreateFusionClip``)."""
+        item_list = list(items)
+        if not item_list:
+            raise errors.TimelineError("create_fusion_clip called with no items.")
+        raw = self._raw.CreateFusionClip([c.raw for c in item_list])
+        if raw is None:
+            raise errors.TimelineError(
+                "Could not create Fusion clip.",
+                cause="CreateFusionClip returned None — items may not be contiguous.",
+                state={"item_count": len(item_list)},
+            )
+        return TimelineItem(
+            raw,
+            track_type=item_list[0].track_type,
+            track_index=item_list[0].track_index,
+        )
+
+    def import_into(self, file_path: str, options: dict[str, Any] | None = None) -> bool:
+        """Import items from an AAF into this timeline (``ImportIntoTimeline``)."""
+        ok = self._raw.ImportIntoTimeline(file_path, options or {})
+        if not ok:
+            raise errors.TimelineError(
+                f"Could not import {file_path!r} into timeline {self.name!r}.",
+                cause="ImportIntoTimeline returned False.",
+                state={"file_path": file_path, "options": options},
+            )
+        return True
+
+    def set_clips_linked(self, items: Iterable[TimelineItem], linked: bool) -> None:
+        """Link or unlink A/V for the given timeline items (``SetClipsLinked``)."""
+        raws = [c.raw for c in items]
+        if not raws:
+            return
+        method = getattr(self._raw, "SetClipsLinked", None)
+        if not callable(method):
+            raise errors.TimelineError("This Resolve build does not expose SetClipsLinked.")
+        if not method(raws, bool(linked)):
+            raise errors.TimelineError(
+                f"Could not {'link' if linked else 'unlink'} {len(raws)} item(s).",
+                state={"count": len(raws), "linked": linked},
+            )
+
+    @property
+    def current_video_item(self) -> TimelineItem | None:
+        """The video timeline item under the playhead (``GetCurrentVideoItem``)."""
+        raw = self._raw.GetCurrentVideoItem()
+        if raw is None:
+            return None
+        return TimelineItem(
+            raw, track_type="video", track_index=self._locate_video_track_index(raw)
+        )
+
+    def current_clip_thumbnail(self) -> dict[str, Any]:
+        """Raw thumbnail (keys ``width``/``height``/``format``/``data``) of the current Color clip."""
+        return dict(self._raw.GetCurrentClipThumbnailImage() or {})
+
+    def grab_still(self) -> Any:
+        """Grab a still from the current clip into the gallery (``GrabStill``)."""
+        still = self._raw.GrabStill()
+        if still is None:
+            raise errors.TimelineError(
+                "Could not grab still.",
+                cause="GrabStill returned None — open the Color page with a clip loaded.",
+                state={"timeline": self.name},
+            )
+        return still
+
+    def grab_all_stills(self, source: int = 1) -> list[Any]:
+        """Grab a still from every clip (``GrabAllStills``).
+
+        ``source``: 1 = first frame, 2 = middle frame. Returns gallery stills.
+        """
+        return list(self._raw.GrabAllStills(source) or [])
+
+    # --- stereo / dolby vision --------------------------------------------
+
+    def convert_to_stereo(self) -> bool:
+        """Convert this timeline to stereoscopic 3D (``ConvertTimelineToStereo``)."""
+        method = getattr(self._raw, "ConvertTimelineToStereo", None)
+        if not callable(method):
+            raise errors.TimelineError("This Resolve build does not expose ConvertTimelineToStereo.")
+        return bool(method())
+
+    def analyze_dolby_vision(
+        self,
+        items: Iterable[TimelineItem] | None = None,
+        *,
+        analysis_type: Any = None,
+    ) -> bool:
+        """Run Dolby Vision analysis on the timeline or specific items (Studio)."""
+        analyze = requires_method(
+            self._raw,
+            "AnalyzeDolbyVision",
+            feature="Dolby Vision analysis",
+            error=errors.TimelineError,
+            min_version="18.1",
+        )
+        raws = [c.raw for c in items] if items is not None else []
+        if analysis_type is not None:
+            return bool(analyze(raws, analysis_type))
+        return bool(analyze(raws)) if raws else bool(analyze())
 
     # --- markers ----------------------------------------------------------
 

@@ -1009,6 +1009,88 @@ def _h_timeline_create_subtitles(ctx: _Context, args: dict[str, Any]) -> dict[st
     return {"timeline": tl.name, "subtitles_created": True}
 
 
+def _h_timeline_set_start_timecode(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl = _timeline_for_args(ctx, args)
+    tl.start_timecode = args["timecode"]
+    return {"timeline": tl.name, "start_timecode": args["timecode"]}
+
+
+def _h_timeline_add_generator(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl = _timeline_for_args(ctx, args)
+    if args.get("timecode"):
+        tl.current_timecode = args["timecode"]
+    item = tl.insert_generator(
+        args["name"],
+        fusion=bool(args.get("fusion", False)),
+        ofx=bool(args.get("ofx", False)),
+    )
+    return {"timeline": tl.name, "inserted": item.name, "generator": args["name"]}
+
+
+def _h_timeline_grab_stills(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl = _timeline_for_args(ctx, args)
+    src = 2 if str(args.get("source", "first")).lower() == "middle" else 1
+    stills = tl.grab_all_stills(src)
+    return {"timeline": tl.name, "grabbed": len(stills)}
+
+
+def _h_timeline_import_into(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl = _timeline_for_args(ctx, args)
+    tl.import_into(args["file_path"], args.get("options"))
+    return {"timeline": tl.name, "imported": args["file_path"]}
+
+
+def _h_render_mode(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    r = ctx.resolve()
+    if args.get("set"):
+        r.render.set_render_mode(args["set"])
+    return {"render_mode": r.render.render_mode()}
+
+
+def _h_render_resolutions(ctx: _Context, args: dict[str, Any]) -> list[dict[str, Any]]:
+    r = ctx.resolve()
+    return r.render.resolutions(args.get("format"), args.get("codec"))
+
+
+def _h_render_refresh_luts(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
+    ctx.resolve().render.refresh_lut_list()
+    return {"refreshed": True}
+
+
+def _h_project_color_groups(ctx: _Context, args: dict[str, Any]) -> Any:
+    proj = _current_project(ctx)
+    if args.get("add"):
+        group = proj.add_color_group(args["add"])
+        return {"created": group.name}
+    if args.get("delete"):
+        match = next((g for g in proj.color_groups() if g.name == args["delete"]), None)
+        if match is None:
+            raise errors.ColorError(f"No color group named {args['delete']!r}.")
+        proj.delete_color_group(match)
+        return {"deleted": args["delete"]}
+    return [{"name": g.name} for g in proj.color_groups()]
+
+
+def _h_project_export_still(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    proj = _current_project(ctx)
+    proj.export_current_frame_as_still(args["file_path"])
+    return {"exported": args["file_path"]}
+
+
+def _h_media_export_metadata(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    proj = _current_project(ctx)
+    proj.media.export_metadata(args["file_path"])
+    return {"exported": args["file_path"]}
+
+
+def _h_media_import_bin(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    proj = _current_project(ctx)
+    proj.media.import_folder_from_file(
+        args["file_path"], source_clips_path=args.get("source_clips", "")
+    )
+    return {"imported": args["file_path"]}
+
+
 def _h_interchange_export(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     from .. import interchange
 
@@ -1842,6 +1924,102 @@ def _build_registry() -> list[_ToolSpec]:
                 }
             ),
             handler=_h_timeline_create_subtitles,
+        ),
+        _ToolSpec(
+            name="timeline_set_start_timecode",
+            description="Set a timeline's start timecode (e.g. '01:00:00:00').",
+            schema=_schema(
+                {"timecode": {"type": "string"}, "timeline": {"type": "string"}},
+                required=["timecode"],
+            ),
+            handler=_h_timeline_set_start_timecode,
+        ),
+        _ToolSpec(
+            name="timeline_add_generator",
+            description=(
+                "Insert a generator at the playhead. Set fusion=true for a Fusion "
+                "generator or ofx=true for an OFX generator; otherwise a standard one. "
+                "Seeks to `timecode` first when given."
+            ),
+            schema=_schema(
+                {
+                    "name": {"type": "string"},
+                    "fusion": {"type": "boolean", "default": False},
+                    "ofx": {"type": "boolean", "default": False},
+                    "timecode": {"type": "string"},
+                    "timeline": {"type": "string"},
+                },
+                required=["name"],
+            ),
+            handler=_h_timeline_add_generator,
+        ),
+        _ToolSpec(
+            name="timeline_grab_stills",
+            description="Grab a still from every clip into the gallery (source: first|middle).",
+            schema=_schema(
+                {
+                    "source": {"type": "string", "enum": ["first", "middle"], "default": "first"},
+                    "timeline": {"type": "string"},
+                }
+            ),
+            handler=_h_timeline_grab_stills,
+        ),
+        _ToolSpec(
+            name="timeline_import_into",
+            description="Import items from an AAF/timeline file into a timeline.",
+            schema=_schema(
+                {
+                    "file_path": {"type": "string"},
+                    "options": {"type": "object", "additionalProperties": True},
+                    "timeline": {"type": "string"},
+                },
+                required=["file_path"],
+            ),
+            handler=_h_timeline_import_into,
+        ),
+        _ToolSpec(
+            name="render_mode",
+            description="Get or set render mode. Pass set='individual' or set='single'.",
+            schema=_schema({"set": {"type": "string", "enum": ["individual", "single"]}}),
+            handler=_h_render_mode,
+        ),
+        _ToolSpec(
+            name="render_resolutions",
+            description="List valid render resolutions for a format/codec (or all).",
+            schema=_schema({"format": {"type": "string"}, "codec": {"type": "string"}}),
+            handler=_h_render_resolutions,
+        ),
+        _ToolSpec(
+            name="render_refresh_luts",
+            description="Refresh Resolve's LUT list so newly-added LUTs become settable.",
+            handler=_h_render_refresh_luts,
+        ),
+        _ToolSpec(
+            name="project_color_groups",
+            description="List color groups, or create one with add=NAME / delete one with delete=NAME.",
+            schema=_schema({"add": {"type": "string"}, "delete": {"type": "string"}}),
+            handler=_h_project_color_groups,
+        ),
+        _ToolSpec(
+            name="project_export_still",
+            description="Export the current Color-page frame as a still image (Resolve 18.5+).",
+            schema=_schema({"file_path": {"type": "string"}}, required=["file_path"]),
+            handler=_h_project_export_still,
+        ),
+        _ToolSpec(
+            name="media_export_metadata",
+            description="Export metadata for every media-pool clip to a CSV file.",
+            schema=_schema({"file_path": {"type": "string"}}, required=["file_path"]),
+            handler=_h_media_export_metadata,
+        ),
+        _ToolSpec(
+            name="media_import_bin",
+            description="Import a media-pool bin from a .drb file (Resolve 18+).",
+            schema=_schema(
+                {"file_path": {"type": "string"}, "source_clips": {"type": "string"}},
+                required=["file_path"],
+            ),
+            handler=_h_media_import_bin,
         ),
         _ToolSpec(
             name="disable_background_tasks",

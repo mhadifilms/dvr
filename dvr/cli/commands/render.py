@@ -69,6 +69,41 @@ def codecs(
     output.emit(rows, fmt=ctx.obj["format"], headline=f"codecs ({format_name})")
 
 
+@app.command("resolutions")
+def resolutions(
+    ctx: typer.Context,
+    format_name: Annotated[str | None, typer.Argument(help="Container format (optional).")] = None,
+    codec: Annotated[str | None, typer.Argument(help="Codec (optional).")] = None,
+) -> None:
+    """List valid render resolutions for a format/codec (or all)."""
+    r = _resolve(ctx)
+    rows = r.render.resolutions(format_name, codec)
+    output.emit(rows, fmt=ctx.obj["format"], headline="resolutions")
+
+
+@app.command("mode")
+def mode(
+    ctx: typer.Context,
+    set_mode: Annotated[
+        str | None,
+        typer.Option("--set", help="Set render mode: individual | single."),
+    ] = None,
+) -> None:
+    """Get or set the render mode (individual clips vs single clip)."""
+    r = _resolve(ctx)
+    if set_mode is not None:
+        r.render.set_render_mode(set_mode)
+    output.emit({"render_mode": r.render.render_mode()}, fmt=ctx.obj["format"])
+
+
+@app.command("refresh-luts")
+def refresh_luts(ctx: typer.Context) -> None:
+    """Refresh Resolve's LUT list so newly-added LUTs become settable."""
+    r = _resolve(ctx)
+    r.render.refresh_lut_list()
+    output.emit({"refreshed": True}, fmt=ctx.obj["format"])
+
+
 @app.command("submit")
 def submit(
     ctx: typer.Context,

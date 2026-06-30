@@ -173,6 +173,76 @@ def add_title(
     )
 
 
+@app.command("start-tc")
+def start_tc(
+    ctx: typer.Context,
+    timecode: Annotated[str, typer.Argument(help="Start timecode, e.g. 01:00:00:00.")],
+) -> None:
+    """Set the current timeline's start timecode."""
+    r = _resolve(ctx)
+    tl = r.timeline.current
+    if tl is None:
+        typer.echo("No timeline is currently loaded.", err=True)
+        raise typer.Exit(1)
+    tl.start_timecode = timecode
+    output.emit({"timeline": tl.name, "start_timecode": timecode}, fmt=ctx.obj["format"])
+
+
+@app.command("add-generator")
+def add_generator(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Generator name from Resolve's Generators list.")],
+    fusion: Annotated[bool, typer.Option("--fusion", help="Insert a Fusion generator.")] = False,
+    ofx: Annotated[bool, typer.Option("--ofx", help="Insert an OFX generator.")] = False,
+    at: Annotated[str | None, typer.Option("--at", help="Timecode to place it at.")] = None,
+) -> None:
+    """Insert a generator on the current timeline."""
+    r = _resolve(ctx)
+    tl = r.timeline.current
+    if tl is None:
+        typer.echo("No timeline is currently loaded.", err=True)
+        raise typer.Exit(1)
+    if at:
+        tl.current_timecode = at
+    item = tl.insert_generator(name, fusion=fusion, ofx=ofx)
+    output.emit({"inserted": item.name, "generator": name}, fmt=ctx.obj["format"])
+
+
+@app.command("grab-stills")
+def grab_stills(
+    ctx: typer.Context,
+    source: Annotated[
+        str, typer.Option("--source", help="Frame to grab: first | middle.")
+    ] = "first",
+) -> None:
+    """Grab a still from every clip on the current timeline into the gallery."""
+    r = _resolve(ctx)
+    tl = r.timeline.current
+    if tl is None:
+        typer.echo("No timeline is currently loaded.", err=True)
+        raise typer.Exit(1)
+    src = 2 if source.lower() == "middle" else 1
+    stills = tl.grab_all_stills(src)
+    output.emit({"timeline": tl.name, "grabbed": len(stills)}, fmt=ctx.obj["format"])
+
+
+@app.command("import-into")
+def import_into(
+    ctx: typer.Context,
+    file: Annotated[
+        str, typer.Argument(help="AAF/timeline file to import into the current timeline.")
+    ],
+) -> None:
+    """Import items from an AAF into the current timeline."""
+    r = _resolve(ctx)
+    tl = r.timeline.current
+    if tl is None:
+        typer.echo("No timeline is currently loaded.", err=True)
+        raise typer.Exit(1)
+    tl.import_into(file)
+    output.emit({"timeline": tl.name, "imported": file}, fmt=ctx.obj["format"])
+
+
 @app.command("subtitles")
 def subtitles(
     ctx: typer.Context,

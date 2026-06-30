@@ -145,6 +145,85 @@ class App:
                     return str(value)
         return "DaVinci Resolve"
 
+    @property
+    def fusion(self) -> Any:
+        """The raw Fusion application object (``Resolve.Fusion()``).
+
+        The starting point for all Fusion scripting (comps, tools, render).
+        ``dvr`` wraps the per-timeline-item Fusion surface
+        (:attr:`dvr.TimelineItem.fusion`); use this when you need the global
+        Fusion app directly. Returns ``None`` if unavailable.
+        """
+        method = getattr(self._raw, "Fusion", None)
+        return method() if callable(method) else None
+
+    # --- layout presets ---------------------------------------------------
+
+    def save_layout(self, name: str) -> None:
+        """Save the current UI layout as a preset named ``name``."""
+        self._layout_op("SaveLayoutPreset", name)
+
+    def load_layout(self, name: str) -> None:
+        """Load a saved UI layout preset."""
+        self._layout_op("LoadLayoutPreset", name)
+
+    def update_layout(self, name: str) -> None:
+        """Overwrite a layout preset with the current UI layout."""
+        self._layout_op("UpdateLayoutPreset", name)
+
+    def delete_layout(self, name: str) -> None:
+        """Delete a saved layout preset."""
+        self._layout_op("DeleteLayoutPreset", name)
+
+    def export_layout(self, name: str, file_path: str) -> None:
+        """Export a layout preset to ``file_path``."""
+        self._layout_op("ExportLayoutPreset", name, file_path)
+
+    def import_layout(self, file_path: str, name: str | None = None) -> None:
+        """Import a layout preset from ``file_path`` (optionally renaming it)."""
+        method = getattr(self._raw, "ImportLayoutPreset", None)
+        if not callable(method):
+            raise errors.DvrError("This Resolve build does not expose ImportLayoutPreset.")
+        ok = method(file_path, name) if name is not None else method(file_path)
+        if ok is False:
+            raise errors.DvrError(
+                f"Could not import layout preset from {file_path!r}.",
+                state={"file_path": file_path, "name": name},
+            )
+
+    def _layout_op(self, method_name: str, *args: Any) -> None:
+        method = getattr(self._raw, method_name, None)
+        if not callable(method):
+            raise errors.DvrError(f"This Resolve build does not expose {method_name}.")
+        if method(*args) is False:
+            raise errors.DvrError(
+                f"{method_name} failed.",
+                cause=f"{method_name} returned False.",
+                state={"args": list(args)},
+            )
+
+    # --- color keyframe mode ----------------------------------------------
+
+    @property
+    def keyframe_mode(self) -> int | None:
+        """The Color page keyframe mode (``GetKeyframeMode``), or None."""
+        method = getattr(self._raw, "GetKeyframeMode", None)
+        if not callable(method):
+            return None
+        value = method()
+        return int(value) if value is not None else None
+
+    @keyframe_mode.setter
+    def keyframe_mode(self, mode: int) -> None:
+        method = getattr(self._raw, "SetKeyframeMode", None)
+        if not callable(method):
+            raise errors.DvrError("This Resolve build does not expose SetKeyframeMode.")
+        if method(int(mode)) is False:
+            raise errors.DvrError(
+                f"Could not set keyframe mode to {mode!r}.",
+                state={"mode": mode},
+            )
+
     def quit(self) -> None:
         """Quit DaVinci Resolve gracefully."""
         self._raw.Quit()
