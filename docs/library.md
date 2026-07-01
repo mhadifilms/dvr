@@ -180,6 +180,14 @@ clip = project.media.find_or_import("/Volumes/raw/master_v003.mov")
 
 # IMF (Interoperable Master Format) — pass the OV folder, not the CPL.
 clips = project.media.import_imf("/Volumes/deliveries/IMF_OV/")
+
+# Nested bin paths: resolve or create "A/B/C" in one call.
+dailies = project.media.ensure_folder_path("Footage/Day01/Dailies")
+existing = project.media.find_folder_path("Footage/Day01")
+
+# Preview what a bulk import would pick up — no Resolve needed.
+from dvr.media import scan_media_files
+files = scan_media_files("/Volumes/Card01", recursive=True)
 ```
 
 ## Interchange
@@ -211,6 +219,19 @@ album.import_stills(["/Volumes/stills/01.png"])
 ## Errors
 
 Every failure raises a subclass of `dvr.errors.DvrError`. See [Errors and diagnostics](concepts/errors.md).
+
+`r.project.require_current()` returns the current project or raises a structured `ProjectError` — use it instead of hand-rolling `if r.project.current is None` checks.
+
+## Diagnostics
+
+```python
+from dvr import doctor
+
+report = doctor.diagnose()            # static: paths, process, env
+report = doctor.diagnose(probe=True)  # also attempts a live connection
+```
+
+The same report backs `dvr doctor` and the MCP `doctor` tool.
 
 ## Type hints
 

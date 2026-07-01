@@ -40,17 +40,12 @@ def start(
         daemon.serve(auto_launch=auto_launch, timeout=timeout)
         return
 
-    # Detach in the background.
-    cmd = [
-        sys.executable,
-        "-m",
-        "dvr",
-        "serve",
-        "start",
-        "--foreground",
-    ]
+    # Detach in the background. Global options like --no-launch belong to
+    # the root command, so they must come after "dvr" but before "serve".
+    cmd = [sys.executable, "-m", "dvr"]
     if not auto_launch:
-        cmd.insert(2, "--no-launch")
+        cmd.append("--no-launch")
+    cmd += ["serve", "start", "--foreground"]
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
@@ -84,5 +79,5 @@ def status_cmd(ctx: typer.Context) -> None:
 def methods(ctx: typer.Context) -> None:
     """List allow-listed RPC methods."""
     cfg = ctx.obj or {}
-    rows = [{"method": name} for name in sorted(daemon._METHODS.keys())]
+    rows = [{"method": name} for name in daemon.methods()]
     output.emit(rows, fmt=cfg.get("format"), headline="rpc methods")

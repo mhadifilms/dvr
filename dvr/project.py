@@ -475,6 +475,16 @@ class ProjectNamespace:
         raw = self._manager.GetCurrentProject()
         return Project(raw, self._manager) if raw is not None else None
 
+    def require_current(self) -> Project:
+        """Return the current project, raising a structured error when none is loaded."""
+        current = self.current
+        if current is None:
+            raise errors.ProjectError(
+                "No project is currently loaded.",
+                fix="Load or create a project first, e.g. `r.project.ensure('MyShow')`.",
+            )
+        return current
+
     def list(self) -> List[str]:  # noqa: UP006
         """Return project names in the current PM folder."""
         return [str(n) for n in (self._manager.GetProjectListInCurrentFolder() or [])]

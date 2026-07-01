@@ -17,6 +17,7 @@ import typer
 from ... import errors
 from ...resolve import Resolve
 from .. import output
+from ..session import resolve_from_ctx
 
 
 def register(app: typer.Typer) -> None:
@@ -37,7 +38,7 @@ def register(app: typer.Typer) -> None:
             dvr eval "[t.name for t in r.timeline.list()]"
         """
         cfg = ctx.obj or {}
-        r = _resolve(cfg)
+        r = resolve_from_ctx(ctx)
         ns = _ns(r)
         try:
             value = eval(expression, ns)
@@ -63,7 +64,7 @@ def register(app: typer.Typer) -> None:
             typer.echo(f"file not found: {path}", err=True)
             raise typer.Exit(1)
         source = path.read_text(encoding="utf-8")
-        r = _resolve(cfg)
+        r = resolve_from_ctx(ctx)
         ns = _ns(r)
         ns["__file__"] = str(path)
         ns["__name__"] = "__main__"
@@ -76,8 +77,7 @@ def register(app: typer.Typer) -> None:
     @app.command("repl")
     def repl_cmd(ctx: typer.Context) -> None:
         """Open an interactive Python REPL with `r` bound to a live Resolve."""
-        cfg = ctx.obj or {}
-        r = _resolve(cfg)
+        r = resolve_from_ctx(ctx)
         ns = _ns(r)
         banner = (
             f"dvr repl — Resolve {r.app.version} ({r.app.product})\n"
@@ -87,10 +87,6 @@ def register(app: typer.Typer) -> None:
         with contextlib.suppress(ImportError):
             import readline  # noqa: F401 — enables history if available
         code.interact(banner=banner, local=ns, exitmsg="bye")
-
-
-def _resolve(cfg: dict[str, Any]) -> Resolve:
-    return Resolve(auto_launch=cfg.get("auto_launch", True), timeout=cfg.get("timeout", 30.0))
 
 
 def _ns(r: Resolve) -> dict[str, Any]:

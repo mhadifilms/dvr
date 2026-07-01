@@ -75,7 +75,7 @@ Issues = "https://github.com/mhadifilms/dvr/issues"
 Changelog = "https://github.com/mhadifilms/dvr/blob/main/CHANGELOG.md"
 
 [project.scripts]
-dvr = "dvr.cli.main:app"
+dvr = "dvr.cli.main:main"
 
 [tool.hatch.version]
 source = "vcs"

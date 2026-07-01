@@ -88,6 +88,7 @@ def root(
     ] = None,
 ) -> None:
     ctx.obj = {"format": fmt, "auto_launch": not no_launch, "timeout": timeout}
+    output.set_session_format(fmt)
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +138,29 @@ def disable_background_tasks(ctx: typer.Context) -> None:
         output.emit({"background_tasks_disabled": True}, fmt=ctx.obj["format"])
 
 
+@app.command("doctor")
+def doctor_cmd(
+    ctx: typer.Context,
+    probe: Annotated[
+        bool,
+        typer.Option(
+            "--probe",
+            help="Additionally attempt a live connection (may take a few seconds).",
+        ),
+    ] = False,
+) -> None:
+    """Diagnose the dvr <-> Resolve setup: paths, process, env, connectivity."""
+    from .. import doctor as doctor_mod
+
+    cfg = ctx.obj or {}
+    report = doctor_mod.diagnose(
+        probe=probe,
+        auto_launch=cfg.get("auto_launch", True) if probe else False,
+        timeout=cfg.get("timeout", 30.0),
+    )
+    output.emit(report, fmt=cfg.get("format"), headline="dvr doctor")
+
+
 # ---------------------------------------------------------------------------
 # Sub-apps
 # ---------------------------------------------------------------------------
@@ -184,9 +208,17 @@ def _resolve_session(ctx: typer.Context) -> Iterator[Resolve]:
 
 
 def main() -> None:
-    """Console-script entry point."""
+    """Console-script entry point.
+
+    Catches :class:`~dvr.errors.DvrError` from *any* command so library
+    failures always render as structured output (JSON on stderr when
+    piped) instead of a Python traceback.
+    """
     try:
         app()
+    except errors.DvrError as exc:
+        output.emit_error(exc)
+        sys.exit(1)
     except KeyboardInterrupt:
         sys.stderr.write("\ncancelled\n")
         sys.exit(130)

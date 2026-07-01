@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__, errors
+from ..media import MediaPool, scan_media_files
 from ..resolve import Resolve
 
 try:
@@ -171,107 +172,18 @@ def _schema(
     return out
 
 
-_VIDEO_EXTS = {".mov", ".mp4", ".mxf", ".avi", ".mkv", ".exr", ".dpx", ".tif", ".tiff"}
-_AUDIO_EXTS = {".wav", ".aif", ".aiff", ".mp3", ".m4a", ".flac"}
-
-
-def _skip_fs_name(name: str, *, include_hidden: bool = False) -> bool:
-    if include_hidden:
-        return False
-    return name.startswith(".") or name.startswith("._") or name == ".DS_Store"
-
-
-def _media_kind_for_path(path: str) -> str:
-    ext = Path(path).suffix.lower()
-    if ext in _VIDEO_EXTS:
-        return "video"
-    if ext in _AUDIO_EXTS:
-        return "audio"
-    return "other"
-
-
-def _walk_media_files(
-    root: str,
-    *,
-    recursive: bool = True,
-    include_hidden: bool = False,
-    max_files: int = 10000,
-) -> list[dict[str, Any]]:
-    base = Path(root).expanduser()
-    if not base.exists():
-        raise errors.MediaError(
-            f"Media path does not exist: {root}",
-            fix="Pass an absolute path visible to the Resolve machine.",
-            state={"path": root},
-        )
-    if base.is_file():
-        candidates = [base]
-    elif recursive:
-        candidates = [p for p in base.rglob("*") if p.is_file()]
-    else:
-        candidates = [p for p in base.iterdir() if p.is_file()]
-
-    files: list[dict[str, Any]] = []
-    for p in sorted(candidates):
-        rel_parts = p.relative_to(base).parts if base.is_dir() else (p.name,)
-        if any(_skip_fs_name(part, include_hidden=include_hidden) for part in rel_parts):
-            continue
-        kind = _media_kind_for_path(str(p))
-        if kind == "other":
-            continue
-        try:
-            size = p.stat().st_size
-        except OSError:
-            size = None
-        files.append(
-            {
-                "path": str(p),
-                "relative_path": str(Path(*rel_parts)),
-                "name": p.name,
-                "extension": p.suffix.lower(),
-                "kind": kind,
-                "size": size,
-            }
-        )
-        if len(files) >= max_files:
-            break
-    return files
-
-
 def _current_project(ctx: _Context) -> Any:
-    current = ctx.resolve().project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
-    return current
+    return ctx.resolve().project.require_current()
 
 
 def _ensure_bin_path(media: Any, path: str | list[str]) -> Any:
-    parts = [p for p in (path if isinstance(path, list) else str(path).split("/")) if p]
-    current = media.root
-    for part in parts:
-        current = media.ensure_folder(str(part), parent=current)
-    return current
+    """Delegate to :meth:`dvr.media.MediaPool.ensure_folder_path` (duck-typed)."""
+    return MediaPool.ensure_folder_path(media, path)
 
 
 def _find_bin_path(media: Any, path: str | list[str]) -> Any:
-    parts = [p for p in (path if isinstance(path, list) else str(path).split("/")) if p]
-    if not parts:
-        return media.root
-    if len(parts) == 1:
-        return media._find_folder(parts[0])
-    current = media.root
-    for part in parts:
-        for sub in current.subfolders:
-            if sub.name == part:
-                current = sub
-                break
-        else:
-            raise errors.MediaError(
-                f"No folder at path {path!r}.",
-                fix="Create it with `media_bin_ensure` first, or pass an existing bin path.",
-                state={"requested": path, "missing": part},
-            )
-    return current
+    """Delegate to :meth:`dvr.media.MediaPool.find_folder_path` (duck-typed)."""
+    return MediaPool.find_folder_path(media, path)
 
 
 def _find_clip(
@@ -319,32 +231,21 @@ def _h_doctor(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     ``probe=true`` to additionally try a live connection (may take several
     seconds while macOS LAN IPs and pinghosts are tried).
     """
-    from ..connection import _platform_paths, _resolve_running
+    from ..doctor import diagnose
 
-    api_dir, lib_path = _platform_paths()
-    out: dict[str, Any] = {
-        "dvr_version": __version__,
-        "python": sys.version.split()[0],
-        "platform": sys.platform,
-        "brand": _brand_metadata(),
-        "scripting_api_dir": api_dir,
-        "scripting_lib_path": lib_path,
-        "scripting_lib_present": os.path.exists(lib_path),
-        "resolve_process_running": _resolve_running(),
-        "env": {
-            "RESOLVE_SCRIPT_API": os.environ.get("RESOLVE_SCRIPT_API"),
-            "RESOLVE_SCRIPT_LIB": os.environ.get("RESOLVE_SCRIPT_LIB"),
-        },
-        # Whether the long-lived MCP cache already has a live connection or
-        # is in the failure-cooldown window from a recent failed connect.
-        "connection_cached": ctx.cache._resolve is not None,
-        "last_connection_error": (
-            ctx.cache._error.to_dict() if ctx.cache._error is not None else None
-        ),
-    }
+    out = diagnose(probe=False)
+    out["brand"] = _brand_metadata()
+    # Whether the long-lived MCP cache already has a live connection or
+    # is in the failure-cooldown window from a recent failed connect.
+    out["connection_cached"] = ctx.cache._resolve is not None
+    out["last_connection_error"] = (
+        ctx.cache._error.to_dict() if ctx.cache._error is not None else None
+    )
     if not bool(args.get("probe", False)):
         return out
 
+    # Probe through the MCP connection cache (not a fresh Resolve()) so a
+    # successful probe warms the cache for subsequent tool calls.
     try:
         r = ctx.cache.get()
         out["connected"] = True
@@ -406,9 +307,7 @@ def _h_project_current(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _h_project_settings_get(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
-    current = ctx.resolve().project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
+    current = _current_project(ctx)
     keys = args.get("keys")
     if keys:
         return {str(key): current.get_setting(str(key)) for key in keys}
@@ -417,9 +316,7 @@ def _h_project_settings_get(ctx: _Context, args: dict[str, Any]) -> dict[str, An
 
 
 def _h_project_save(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
-    current = ctx.resolve().project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
+    current = _current_project(ctx)
     current.save()
     return {"saved": current.name}
 
@@ -693,38 +590,28 @@ def _h_render_clear(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _h_media_inspect(ctx: _Context, _args: dict[str, Any]) -> dict[str, Any]:
-    current = ctx.resolve().project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
-    return current.media.inspect()
+    return _current_project(ctx).media.inspect()
 
 
 def _h_media_bins(ctx: _Context, _args: dict[str, Any]) -> list[dict[str, Any]]:
-    current = ctx.resolve().project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
-    return [b.inspect() for b in current.media.root.subbins()]
+    return [b.inspect() for b in _current_project(ctx).media.root.subbins()]
 
 
 def _h_media_ls(ctx: _Context, args: dict[str, Any]) -> list[dict[str, Any]]:
-    current = ctx.resolve().project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
-    target = _find_bin_path(current.media, args["bin"]) if args.get("bin") else current.media.root
+    media = _current_project(ctx).media
+    target = _find_bin_path(media, args["bin"]) if args.get("bin") else media.root
     return [a.inspect() for a in target.assets()]
 
 
 def _h_media_import(ctx: _Context, args: dict[str, Any]) -> list[dict[str, Any]]:
-    current = ctx.resolve().project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
-    target_bin = _ensure_bin_path(current.media, args["bin"]) if args.get("bin") else None
-    assets = current.media.import_(args["paths"], bin=target_bin)
+    media = _current_project(ctx).media
+    target_bin = _ensure_bin_path(media, args["bin"]) if args.get("bin") else None
+    assets = media.import_(args["paths"], bin=target_bin)
     return [a.inspect() for a in assets]
 
 
 def _h_media_scan(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
-    files = _walk_media_files(
+    files = scan_media_files(
         args["path"],
         recursive=bool(args.get("recursive", True)),
         include_hidden=bool(args.get("include_hidden", False)),
@@ -875,10 +762,7 @@ def _h_disable_background_tasks(ctx: _Context, _args: dict[str, Any]) -> dict[st
 
 
 def _h_timeline_append(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
-    r = ctx.resolve()
-    current = r.project.current
-    if current is None:
-        raise errors.ProjectError("No project is currently loaded.")
+    current = _current_project(ctx)
     media = current.media
     timeline_name = args.get("timeline")
     tl = current.timeline.set_current(timeline_name) if timeline_name else current.timeline.current

@@ -108,6 +108,11 @@ _METHODS: dict[str, tuple[str, bool]] = {
 }
 
 
+def methods() -> list[str]:
+    """Return the sorted allow-list of RPC method names the daemon accepts."""
+    return sorted(_METHODS)
+
+
 def _serialize(value: Any) -> Any:
     """Convert a wrapped object to a plain JSON-able value."""
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -412,4 +417,4 @@ def status() -> dict[str, Any]:
     return {"running": running, "pid": pid, "socket": str(sock)}
 
 
-__all__ = ["Client", "serve", "socket_path", "status", "stop_daemon"]
+__all__ = ["Client", "methods", "serve", "socket_path", "status", "stop_daemon"]

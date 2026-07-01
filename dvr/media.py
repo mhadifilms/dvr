@@ -932,6 +932,40 @@ class MediaPool:
                 return folder
         return None
 
+    def find_folder_path(self, path: str | list[str]) -> Folder:
+        """Return the folder at a ``"A/B/C"`` (or list) path from the root.
+
+        A single-segment path falls back to a depth-first search by name,
+        so ``"Dailies"`` finds the bin wherever it lives. Raises
+        :class:`~dvr.errors.MediaError` if any segment is missing.
+        """
+        parts = [p for p in (path if isinstance(path, list) else str(path).split("/")) if p]
+        if not parts:
+            return self.root
+        if len(parts) == 1:
+            return self._find_folder(parts[0])
+        current = self.root
+        for part in parts:
+            for sub in current.subfolders:
+                if sub.name == part:
+                    current = sub
+                    break
+            else:
+                raise errors.MediaError(
+                    f"No folder at path {path!r}.",
+                    fix="Create it with `ensure_folder_path` first, or pass an existing path.",
+                    state={"requested": path, "missing": part},
+                )
+        return current
+
+    def ensure_folder_path(self, path: str | list[str]) -> Folder:
+        """Get-or-create every segment of a ``"A/B/C"`` (or list) path. Idempotent."""
+        parts = [p for p in (path if isinstance(path, list) else str(path).split("/")) if p]
+        current = self.root
+        for part in parts:
+            current = self.ensure_folder(str(part), parent=current)
+        return current
+
     def walk(self) -> Iterator[Folder]:
         """Yield every folder in the pool (depth-first from root)."""
         yield from self.root.walk()
@@ -1611,6 +1645,88 @@ class MediaPool:
         }
 
 
+# ---------------------------------------------------------------------------
+# Filesystem media scan (no Resolve required)
+# ---------------------------------------------------------------------------
+
+_VIDEO_EXTS = {".mov", ".mp4", ".mxf", ".avi", ".mkv", ".exr", ".dpx", ".tif", ".tiff"}
+_AUDIO_EXTS = {".wav", ".aif", ".aiff", ".mp3", ".m4a", ".flac"}
+
+
+def media_kind_for_path(path: str | os.PathLike[str]) -> str:
+    """Classify a file path as ``"video"``, ``"audio"``, or ``"other"`` by extension."""
+    ext = Path(path).suffix.lower()
+    if ext in _VIDEO_EXTS:
+        return "video"
+    if ext in _AUDIO_EXTS:
+        return "audio"
+    return "other"
+
+
+def _skip_fs_name(name: str, *, include_hidden: bool = False) -> bool:
+    if include_hidden:
+        return False
+    return name.startswith(".") or name.startswith("._") or name == ".DS_Store"
+
+
+def scan_media_files(
+    root: str | os.PathLike[str],
+    *,
+    recursive: bool = True,
+    include_hidden: bool = False,
+    max_files: int = 10000,
+) -> list[dict[str, Any]]:
+    """Scan the filesystem for importable media files under ``root``.
+
+    Works without a Resolve connection — useful for previewing what a
+    bulk import would pick up. Hidden files, AppleDouble ``._*`` files,
+    and ``.DS_Store`` are skipped unless ``include_hidden=True``.
+
+    Returns one dict per file with ``path``, ``relative_path``, ``name``,
+    ``extension``, ``kind`` (``video``/``audio``), and ``size`` (bytes,
+    or ``None`` when unreadable).
+    """
+    base = Path(root).expanduser()
+    if not base.exists():
+        raise errors.MediaError(
+            f"Media path does not exist: {root}",
+            fix="Pass an absolute path visible to the Resolve machine.",
+            state={"path": str(root)},
+        )
+    if base.is_file():
+        candidates = [base]
+    elif recursive:
+        candidates = [p for p in base.rglob("*") if p.is_file()]
+    else:
+        candidates = [p for p in base.iterdir() if p.is_file()]
+
+    files: list[dict[str, Any]] = []
+    for p in sorted(candidates):
+        rel_parts = p.relative_to(base).parts if base.is_dir() else (p.name,)
+        if any(_skip_fs_name(part, include_hidden=include_hidden) for part in rel_parts):
+            continue
+        kind = media_kind_for_path(p)
+        if kind == "other":
+            continue
+        try:
+            size: int | None = p.stat().st_size
+        except OSError:
+            size = None
+        files.append(
+            {
+                "path": str(p),
+                "relative_path": str(Path(*rel_parts)),
+                "name": p.name,
+                "extension": p.suffix.lower(),
+                "kind": kind,
+                "size": size,
+            }
+        )
+        if len(files) >= max_files:
+            break
+    return files
+
+
 def _normalise_path(p: str | os.PathLike[str]) -> str:
     """Normalize ``p`` for cross-platform equality comparison.
 
@@ -1630,4 +1746,6 @@ __all__ = [
     "MediaPool",
     "MediaPoolItem",
     "MediaStorage",
+    "media_kind_for_path",
+    "scan_media_files",
 ]

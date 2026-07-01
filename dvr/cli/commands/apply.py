@@ -7,13 +7,8 @@ from typing import Annotated
 import typer
 
 from ... import spec as spec_mod
-from ...resolve import Resolve
 from .. import output
-
-
-def _resolve(ctx: typer.Context) -> Resolve:
-    cfg = ctx.obj or {}
-    return Resolve(auto_launch=cfg.get("auto_launch", True), timeout=cfg.get("timeout", 30.0))
+from ..session import resolve_from_ctx as _resolve
 
 
 def _action_rows(actions: list[spec_mod.Action]) -> list[dict[str, str]]:

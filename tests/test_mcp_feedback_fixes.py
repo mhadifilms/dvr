@@ -284,6 +284,9 @@ def test_timeline_append_errors_on_partial_append() -> None:
     class _ProjectNamespace:
         current = _Project()
 
+        def require_current(self) -> _Project:
+            return self.current
+
     class _Resolve:
         project = _ProjectNamespace()
 
@@ -332,6 +335,9 @@ def test_timeline_append_requires_record_frame_for_non_default_tracks() -> None:
 
     class _ProjectNamespace:
         current = _Project()
+
+        def require_current(self) -> _Project:
+            return self.current
 
     class _Resolve:
         project = _ProjectNamespace()

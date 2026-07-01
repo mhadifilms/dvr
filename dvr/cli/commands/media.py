@@ -2,31 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import Annotated
 
 import typer
 
-from ...resolve import Resolve
+from ... import errors
+from ...media import Clip, Folder, scan_media_files
+from ...project import Project
 from .. import output
-
-if TYPE_CHECKING:
-    from ...media import Clip, Folder
+from ..session import current_project as _current_project
+from ..session import resolve_from_ctx as _resolve
 
 app = typer.Typer(name="media", help="Media pool: bins, assets, import, relink, proxy, audio sync.")
-
-
-def _resolve(ctx: typer.Context) -> Resolve:
-    cfg = ctx.obj or {}
-    return Resolve(auto_launch=cfg.get("auto_launch", True), timeout=cfg.get("timeout", 30.0))
-
-
-def _current_project(ctx: typer.Context) -> object:
-    r = _resolve(ctx)
-    project = r.project.current
-    if project is None:
-        typer.echo("No project is currently loaded.", err=True)
-        raise typer.Exit(1)
-    return project
 
 
 def _ai_target(ctx: typer.Context, *, bin: str | None, clip: str | None) -> Clip | Folder:
@@ -35,25 +22,23 @@ def _ai_target(ctx: typer.Context, *, bin: str | None, clip: str | None) -> Clip
     ``--clip`` takes precedence; otherwise the named bin (or the root
     folder) is used so the operation applies to the whole bin tree.
     """
-    project = _current_project(ctx)
-    pool = project.media  # type: ignore[attr-defined]
+    pool = _current_project(ctx).media
     if clip is not None:
         found = pool.find_clip(name=clip)
         if found is None:
-            typer.echo(f"No clip named {clip!r} in the media pool.", err=True)
-            raise typer.Exit(1)
-        return cast("Clip", found)
-    return cast("Folder", pool._find_bin(bin) if bin else pool.root)
+            raise errors.MediaError(
+                f"No clip named {clip!r} in the media pool.",
+                fix="List clips with `dvr media ls` to find the exact name.",
+                state={"requested": clip},
+            )
+        return found
+    return pool.find_folder_path(bin) if bin else pool.root
 
 
 @app.command("inspect")
 def inspect_pool(ctx: typer.Context) -> None:
     """Inspect the current project's media pool."""
-    r = _resolve(ctx)
-    project = r.project.current
-    if project is None:
-        typer.echo("No project is currently loaded.", err=True)
-        raise typer.Exit(1)
+    project = _current_project(ctx)
     output.emit(project.media.inspect(), fmt=ctx.obj["format"], headline="media pool")
 
 
@@ -63,8 +48,8 @@ def export_metadata(
     file: Annotated[str, typer.Argument(help="Output CSV path.")],
 ) -> None:
     """Export metadata for every media-pool clip to a CSV file."""
-    project = _current_project(ctx)
-    project.media.export_metadata(file)  # type: ignore[attr-defined]
+    project: Project = _current_project(ctx)
+    project.media.export_metadata(file)
     output.emit({"exported": file}, fmt=ctx.obj["format"])
 
 
@@ -79,20 +64,14 @@ def import_bin(
 ) -> None:
     """Import a media-pool bin from a .drb file (Resolve 18+)."""
     project = _current_project(ctx)
-    project.media.import_folder_from_file(  # type: ignore[attr-defined]
-        file, source_clips_path=source_clips or ""
-    )
+    project.media.import_folder_from_file(file, source_clips_path=source_clips or "")
     output.emit({"imported": file}, fmt=ctx.obj["format"])
 
 
 @app.command("bins")
 def bins(ctx: typer.Context) -> None:
     """List bins in the current project's media pool."""
-    r = _resolve(ctx)
-    project = r.project.current
-    if project is None:
-        typer.echo("No project is currently loaded.", err=True)
-        raise typer.Exit(1)
+    project = _current_project(ctx)
     rows = [b.inspect() for b in project.media.root.subbins()]
     output.emit(rows, fmt=ctx.obj["format"], headline="bins")
 
@@ -102,37 +81,59 @@ def ls_bin(
     ctx: typer.Context,
     bin: Annotated[
         str | None,
-        typer.Argument(help="Bin name to list. Defaults to the root bin."),
+        typer.Argument(help="Bin name or `A/B` path to list. Defaults to the root bin."),
     ] = None,
 ) -> None:
     """List assets in a bin."""
-    r = _resolve(ctx)
-    project = r.project.current
-    if project is None:
-        typer.echo("No project is currently loaded.", err=True)
-        raise typer.Exit(1)
-    target = project.media._find_bin(bin) if bin else project.media.root
+    pool = _current_project(ctx).media
+    target = pool.find_folder_path(bin) if bin else pool.root
     rows = [a.inspect() for a in target.assets()]
     output.emit(rows, fmt=ctx.obj["format"], headline=f"assets in {target.name}")
+
+
+@app.command("scan")
+def scan(
+    ctx: typer.Context,
+    path: Annotated[str, typer.Argument(help="File or directory to scan for media files.")],
+    recursive: Annotated[
+        bool,
+        typer.Option("--recursive/--no-recursive", help="Recurse into subdirectories."),
+    ] = True,
+    include_hidden: Annotated[
+        bool,
+        typer.Option("--include-hidden", help="Include hidden and AppleDouble (._*) files."),
+    ] = False,
+    max_files: Annotated[
+        int,
+        typer.Option("--max-files", help="Stop after this many matches.", min=1),
+    ] = 10000,
+) -> None:
+    """Preview which media files an import would pick up (no Resolve needed)."""
+    files = scan_media_files(
+        path,
+        recursive=recursive,
+        include_hidden=include_hidden,
+        max_files=max_files,
+    )
+    output.emit(files, fmt=ctx.obj["format"], headline=f"media files under {path}")
 
 
 @app.command("mkbin")
 def mkbin(
     ctx: typer.Context,
-    name: Annotated[str, typer.Argument(help="Bin name.")],
+    name: Annotated[str, typer.Argument(help="Bin name or `A/B` path to create.")],
     parent: Annotated[
         str | None,
         typer.Option("--parent", help="Parent bin (default: root)."),
     ] = None,
 ) -> None:
-    """Create (or get-or-create) a bin."""
-    r = _resolve(ctx)
-    project = r.project.current
-    if project is None:
-        typer.echo("No project is currently loaded.", err=True)
-        raise typer.Exit(1)
-    parent_bin = project.media._find_bin(parent) if parent else project.media.root
-    bin_obj = project.media.ensure_bin(name, parent=parent_bin)
+    """Create (or get-or-create) a bin. Accepts nested `A/B` paths."""
+    pool = _current_project(ctx).media
+    if parent:
+        parent_bin = pool.find_folder_path(parent)
+        bin_obj = pool.ensure_bin(name, parent=parent_bin)
+    else:
+        bin_obj = pool.ensure_folder_path(name)
     output.emit(bin_obj.inspect(), fmt=ctx.obj["format"], headline=f"bin: {bin_obj.name}")
 
 
@@ -146,13 +147,9 @@ def import_files(
     ] = None,
 ) -> None:
     """Import media files into the pool."""
-    r = _resolve(ctx)
-    project = r.project.current
-    if project is None:
-        typer.echo("No project is currently loaded.", err=True)
-        raise typer.Exit(1)
-    target_bin = project.media._find_bin(bin) if bin else None
-    assets = project.media.import_(paths, bin=target_bin)
+    pool = _current_project(ctx).media
+    target_bin = pool.ensure_folder_path(bin) if bin else None
+    assets = pool.import_(paths, bin=target_bin)
     rows = [a.inspect() for a in assets]
     output.emit(rows, fmt=ctx.obj["format"], headline=f"imported {len(rows)}")
 
@@ -170,13 +167,9 @@ def relink(
     ] = None,
 ) -> None:
     """Relink assets in a bin to new files in a folder."""
-    r = _resolve(ctx)
-    project = r.project.current
-    if project is None:
-        typer.echo("No project is currently loaded.", err=True)
-        raise typer.Exit(1)
-    target = project.media._find_bin(bin) if bin else project.media.root
-    project.media.relink(target.assets(), folder)
+    pool = _current_project(ctx).media
+    target = pool.find_folder_path(bin) if bin else pool.root
+    pool.relink(target.assets(), folder)
     output.emit(
         {"relinked": len(target.assets()), "folder": folder, "bin": target.name},
         fmt=ctx.obj["format"],

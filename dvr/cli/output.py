@@ -27,10 +27,23 @@ from rich.table import Table
 _console = Console()
 _err_console = Console(stderr=True)
 
+# Set once by the root callback from --format so that error handlers
+# outside the command (e.g. the top-level DvrError catch in main) render
+# in the format the user asked for.
+_session_format: str | None = None
+
+
+def set_session_format(fmt: str | None) -> None:
+    """Record the --format chosen for this CLI invocation."""
+    global _session_format
+    _session_format = fmt
+
 
 def resolve_format(explicit: str | None) -> str:
     if explicit:
         return explicit
+    if _session_format:
+        return _session_format
     env = os.environ.get("DVR_FORMAT")
     if env:
         return env
@@ -139,4 +152,4 @@ def _format_cell(value: Any) -> str:
     return str(value)
 
 
-__all__ = ["emit", "emit_error", "resolve_format"]
+__all__ = ["emit", "emit_error", "resolve_format", "set_session_format"]

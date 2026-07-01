@@ -25,13 +25,9 @@ from ... import errors, schema
 from ...resolve import Resolve
 from ...timeline import TimelineItem
 from .. import output
+from ..session import resolve_from_ctx as _resolve
 
 app = typer.Typer(name="clip", help="Query and bulk-mutate clips on the current timeline.")
-
-
-def _resolve(ctx: typer.Context) -> Resolve:
-    cfg = ctx.obj or {}
-    return Resolve(auto_launch=cfg.get("auto_launch", True), timeout=cfg.get("timeout", 30.0))
 
 
 # ---------------------------------------------------------------------------

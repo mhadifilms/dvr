@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `dvr doctor` CLI command — the setup diagnostics that previously existed
+  only as an MCP tool. Backed by a new shared `dvr.doctor.diagnose()`
+  library function (static probe by default, `--probe` attempts a live
+  connection) and new public `connection.platform_paths()` /
+  `connection.resolve_process_running()` helpers.
+- `dvr media scan` CLI command — preview which media files a bulk import
+  would pick up, without touching Resolve. Backed by a new
+  `dvr.media.scan_media_files()` library function (also used by the
+  `media_scan` MCP tool), plus `media_kind_for_path()`.
+- `MediaPool.find_folder_path()` / `MediaPool.ensure_folder_path()` —
+  resolve or create nested `"A/B/C"` bin paths. Previously this logic
+  lived only inside the MCP server; the CLI (`dvr media ls/mkbin/import`)
+  and MCP now share it, so nested bin paths work everywhere.
+- `ProjectNamespace.require_current()` — returns the current project or
+  raises a structured `ProjectError`, replacing ad-hoc "no project loaded"
+  checks across the CLI and MCP server.
+- `daemon.methods()` — public accessor for the daemon RPC allow-list
+  (the `dvr serve methods` command no longer reads a private attribute).
 - On-screen text customization. `dvr` could only drop a raw Fusion node;
   it now inserts and fully styles titles across every interface.
   - Library: `Timeline.insert_title(title="Text+", *, fusion=True, ...)`
@@ -68,6 +86,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `timeline_grab_stills`, `timeline_import_into`, `render_mode`,
     `render_resolutions`, `render_refresh_luts`, `project_color_groups`,
     `project_export_still`, `media_export_metadata`, and `media_import_bin`.
+
+### Fixed
+
+- `dvr serve start --no-launch` (background mode) spawned a broken child
+  command (`python -m --no-launch dvr ...`); the global flag is now placed
+  correctly after `dvr`.
+- CLI commands now render *all* library errors as structured output
+  (JSON on stderr when piped) instead of Python tracebacks. Previously
+  only a handful of top-level commands did; `dvr project list`,
+  `dvr media ...`, `dvr render ...` and the rest let `DvrError` escape as
+  a traceback. The `dvr` entry point now routes through a central handler,
+  and `--format` is honored by error output.
+- `dvr media` subcommands raise structured `MediaError`/`ProjectError`
+  diagnostics (with `cause`/`fix`/`state`) instead of bare
+  `typer.echo(..., err=True)` messages.
+
+### Changed
+
+- The console script entry point moved from `dvr.cli.main:app` to
+  `dvr.cli.main:main`, so Ctrl-C and structured error handling behave the
+  same for `dvr` and `python -m dvr`.
+- The MCP server's `doctor`, `media_scan`, bin-path, and current-project
+  helpers now delegate to the shared library implementations above (no
+  behavior change to the MCP tools themselves).
 
 ## [1.3.0] - 2026-06-25
 

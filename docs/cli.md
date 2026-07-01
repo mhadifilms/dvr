@@ -7,6 +7,7 @@ The `dvr` CLI is a thin wrapper around the Python library. Every command produce
 ```text
 dvr inspect           One-call snapshot of Resolve, current project, and current timeline.
 dvr ping              Verify the connection. Prints version on success.
+dvr doctor [--probe]  Diagnose the setup: paths, process, env — and connectivity with --probe.
 dvr page [NAME]       Read or set the current Resolve page.
 dvr plan FILE         Show the actions `dvr apply` would take.
 dvr apply FILE        Reconcile a spec against the live Resolve state.
@@ -17,7 +18,7 @@ dvr apply FILE        Reconcile a spec against the live Resolve state.
 ```text
 dvr project   list | current | ensure | create | load | delete | save | export | import | generate-speech
 dvr timeline  list | current | inspect | ensure | create | switch | delete | add-title | subtitles
-dvr media     inspect | bins | ls | mkbin | import | relink | storage
+dvr media     inspect | bins | ls | scan | mkbin | import | relink | storage
 dvr clip      ls | inspect | set | transform | crop | composite | retime | reset | text | capabilities
 dvr render    queue | presets | formats | codecs | submit | status | watch | stop | clear
 dvr serve     start | stop | status | methods                   (daemon mode)
@@ -110,6 +111,22 @@ Auto-caption a timeline from its audio (Whisper, Studio):
 dvr timeline subtitles --language en --chars-per-line 42
 ```
 
+## Diagnostics
+
+`dvr doctor` reports where the Resolve scripting library is expected, whether it exists, whether the Resolve process is running, and the relevant environment variables — without touching Resolve. Add `--probe` to also attempt a live connection:
+
+```bash
+dvr doctor            # fast, static
+dvr doctor --probe    # additionally connects (a few seconds on macOS)
+```
+
+`dvr media scan PATH` previews which files a bulk import would pick up (video/audio by extension; hidden and AppleDouble `._*` files skipped), also without needing Resolve:
+
+```bash
+dvr media scan ~/Footage --no-recursive
+dvr media scan /Volumes/Card01 | jq '.[].path'
+```
+
 ## Errors
 
-When a command fails, the CLI exits with code `1` and writes a structured error to stderr (in the chosen output format). See [Errors and diagnostics](concepts/errors.md) for the field layout.
+When a command fails, the CLI exits with code `1` and writes a structured error to stderr (in the chosen output format). This applies to every command — connection failures, missing projects, invalid bins, and so on all render as the same `type` / `message` / `cause` / `fix` / `state` payload instead of a Python traceback. See [Errors and diagnostics](concepts/errors.md) for the field layout.

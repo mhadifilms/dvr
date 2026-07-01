@@ -5,8 +5,8 @@ from __future__ import annotations
 import typer
 
 from ... import lint as lint_mod
-from ...resolve import Resolve
 from .. import output
+from ..session import resolve_from_ctx
 
 
 def register(app: typer.Typer) -> None:
@@ -18,7 +18,7 @@ def register(app: typer.Typer) -> None:
         do not affect the exit code.
         """
         cfg = ctx.obj or {}
-        r = Resolve(auto_launch=cfg.get("auto_launch", True), timeout=cfg.get("timeout", 30.0))
+        r = resolve_from_ctx(ctx)
         report = lint_mod.lint(r)
         output.emit(report.to_dict(), fmt=cfg.get("format"), headline="lint")
         if report.errors:

@@ -283,8 +283,23 @@ def _launch_resolve() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Public entry points
 # ---------------------------------------------------------------------------
+
+
+def platform_paths() -> tuple[str, str]:
+    """Return ``(script_api_dir, script_lib_path)`` for the current platform.
+
+    Public counterpart of the internal path discovery, for diagnostics
+    (:func:`dvr.doctor.diagnose`) and tooling that needs to report where
+    Resolve's scripting library is expected to live.
+    """
+    return _platform_paths()
+
+
+def resolve_process_running() -> bool:
+    """Best-effort check: is the DaVinci Resolve process running locally?"""
+    return _resolve_running()
 
 
 def connect(
@@ -421,4 +436,4 @@ def connect(
     )
 
 
-__all__ = ["connect"]
+__all__ = ["connect", "platform_paths", "resolve_process_running"]

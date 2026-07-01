@@ -9,15 +9,10 @@ import typer
 from ... import diff as diff_mod
 from ... import snapshot as snap_mod
 from ... import spec as spec_mod
-from ...resolve import Resolve
 from .. import output
+from ..session import resolve_from_ctx as _resolve
 
 app = typer.Typer(name="diff", help="Compare timelines, snapshots, and specs.")
-
-
-def _resolve(ctx: typer.Context) -> Resolve:
-    cfg = ctx.obj or {}
-    return Resolve(auto_launch=cfg.get("auto_launch", True), timeout=cfg.get("timeout", 30.0))
 
 
 @app.command("timelines")
