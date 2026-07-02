@@ -11,7 +11,7 @@ Open a connection with ``r = Resolve()`` and navigate from there.
 
 from __future__ import annotations
 
-from . import audio, diff, doctor, errors, gallery, interchange, lint, schema, snapshot, spec
+from . import audio, diff, doctor, errors, gallery, interchange, lint, schema, snapshot, spec, vcr
 from .color import ColorGroup, ColorOps, NodeGraph
 from .media import (
     Asset,  # deprecated alias of Clip (kept for back-compat)
@@ -95,4 +95,5 @@ __all__ = [
     "schema",
     "snapshot",
     "spec",
+    "vcr",
 ]

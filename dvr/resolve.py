@@ -380,6 +380,36 @@ class Resolve:
             "project_count": len(self.project.list()),
         }
 
+    # --- transactions -------------------------------------------------------
+
+    @contextmanager
+    def transaction(self, *, name: str | None = None) -> Iterator[Any]:
+        """Snapshot the current project; roll back if the block raises.
+
+        Captures a :mod:`dvr.snapshot` of the currently loaded project on
+        entry and persists it to disk. If the block raises a
+        :class:`~dvr.errors.DvrError`, the snapshot is restored before the
+        error propagates (with the snapshot name attached to its state).
+
+        Only snapshot-representable state rolls back — settings, bins,
+        timelines, tracks, markers. Media imports and renders are not
+        undone.
+
+        Example:
+            >>> with r.transaction():
+            ...     r.project.current.set_setting("timelineFrameRate", "24")
+        """
+        from . import snapshot as snapshot_mod
+
+        snap = snapshot_mod.capture(self, name=name)
+        snapshot_mod.save(snap)
+        try:
+            yield snap
+        except errors.DvrError as exc:
+            snapshot_mod.restore(self, snap)
+            exc.state.setdefault("rolled_back_to_snapshot", snap.name)
+            raise
+
     # --- context manager --------------------------------------------------
 
     def close(self, *, cancel_pending_renders: bool = True) -> None:

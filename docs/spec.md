@@ -32,6 +32,28 @@ dvr apply project.dvr.yaml
 
 Re-running is a no-op if the live state already matches.
 
+## Safety levers
+
+```bash
+dvr apply show.yaml --transactional   # snapshot first; auto-rollback on failure
+dvr apply show.yaml --verify          # read every setting back after writing
+```
+
+`--transactional` captures a snapshot of the project before mutating anything. If any action fails, the snapshot is restored and the error reports the rollback (and the snapshot name, in case you want it later). When the project doesn't exist yet there is nothing to roll back to, and the original error propagates unchanged.
+
+`--verify` catches Resolve's most maddening failure mode — `SetSetting` returning success while silently ignoring the value. Every write is read back; a mismatch raises a `SettingsError` with what was written and what stuck.
+
+Both are exposed on the `apply_spec` MCP tool (`transactional` / `verify`) and on `dvr.spec.apply(...)`.
+
+## Adopting an existing project
+
+```bash
+dvr spec export -o show.yaml          # current project
+dvr spec export MyShow -o show.yaml   # by name
+```
+
+`spec export` (library: `dvr.spec.from_live()`) reverse-engineers a spec from live state — the settings subset dvr round-trips, the bin tree, and each timeline's fps, track counts, and markers. From then on the project can be managed declaratively with `dvr plan` / `dvr apply`.
+
 ## Schema
 
 ```yaml
@@ -39,9 +61,15 @@ project: <name>                  # required — project to ensure exists
 color_preset: <preset-name>      # optional — see below for valid presets
 settings:                        # optional — raw project setting overrides
   <key>: <value>
+bins:                            # optional — media-pool bins to ensure
+  - Footage/Day01                # nested "A/B/C" paths, created idempotently
+  - Audio
 timelines:                       # optional — timelines to ensure
   - name: <name>                 # required
     fps: <number>                # optional
+    tracks:                      # optional — minimum track counts
+      video: 3                   # tracks are added until the count is met;
+      audio: 4                   # existing extra tracks are never removed
     settings:                    # optional — timeline setting overrides
       <key>: <value>
     markers:                     # optional

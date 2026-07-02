@@ -43,7 +43,7 @@ from ..resolve import Resolve
 try:
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import CallToolResult, TextContent, Tool
+    from mcp.types import CallToolResult, Resource, TextContent, Tool
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "The MCP server requires the `mcp` package. Reinstall with `pip install dvr`."
@@ -1016,6 +1016,8 @@ def _h_apply_spec(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
         dry_run=bool(args.get("dry_run", False)),
         run_hooks=bool(args.get("run_hooks", True)),
         continue_on_error=bool(args.get("continue_on_error", False)),
+        transactional=bool(args.get("transactional", False)),
+        verify=bool(args.get("verify", False)),
     )
     return {
         "spec": str(args["spec_path"]),
@@ -1037,6 +1039,66 @@ def _h_snapshot_save(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
         "project": snap.project,
         "captured_at": snap.captured_at,
         "path": str(snap_path),
+    }
+
+
+def _h_spec_export(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    from .. import spec as spec_mod
+
+    return spec_mod.from_live(ctx.resolve(), project=args.get("project"))
+
+
+def _h_render_wait(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    from ..render import RenderJob
+
+    job = RenderJob(ctx.resolve().render, str(args["job_id"]))
+    job.wait(
+        poll_interval=float(args.get("poll_interval", 1.0)),
+        timeout=float(args["timeout"]) if args.get("timeout") is not None else 600.0,
+    )
+    return job.poll()
+
+
+def _h_timeline_assemble(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    """Workflow tool: import media and assemble a timeline in one call."""
+    current = _current_project(ctx)
+    media = current.media
+    tl = current.timeline.ensure(str(args["timeline"]))
+    if args.get("fps") is not None:
+        tl.set_setting("timelineFrameRate", str(args["fps"]))
+
+    target_bin = _ensure_bin_path(media, args["bin"]) if args.get("bin") else None
+
+    imported = 0
+    payload: list[dict[str, Any]] = []
+    for item in args["items"]:
+        if item.get("path"):
+            clip = media.find_or_import(item["path"], folder=target_bin)
+            imported += 1
+        else:
+            clip = _find_clip(media, name=item.get("name"), bin=args.get("bin"))
+        entry: dict[str, Any] = {"mediaPoolItem": clip.raw}
+        for key, resolve_key in (
+            ("start_frame", "startFrame"),
+            ("end_frame", "endFrame"),
+        ):
+            if item.get(key) is not None:
+                entry[resolve_key] = int(item[key])
+        payload.append(entry)
+
+    appended = media.append_to_timeline(payload)
+    if len(appended) != len(payload):
+        raise errors.TimelineError(
+            "Resolve appended fewer timeline items than requested.",
+            cause="AppendToTimeline returned a partial result.",
+            fix="Inspect the timeline with `timeline_inspect` before retrying.",
+            state={"requested_count": len(payload), "appended_count": len(appended)},
+        )
+    return {
+        "timeline": tl.name,
+        "appended": len(appended),
+        "imported": imported,
+        "duration_frames": tl.duration_frames,
     }
 
 
@@ -1525,6 +1587,26 @@ def _build_registry() -> list[_ToolSpec]:
             handler=_h_render_status,
         ),
         _ToolSpec(
+            name="render_wait",
+            description=(
+                "Block until a render job finishes (or fails / times out) and "
+                "return its final status. Prefer this over polling render_status "
+                "in a loop."
+            ),
+            schema=_schema(
+                {
+                    "job_id": {"type": "string"},
+                    "timeout": {
+                        "type": "number",
+                        "description": "Max seconds to wait. Default 600.",
+                    },
+                    "poll_interval": {"type": "number", "default": 1.0},
+                },
+                required=["job_id"],
+            ),
+            handler=_h_render_wait,
+        ),
+        _ToolSpec(
             name="render_stop",
             description="Stop the active render.",
             handler=_h_render_stop,
@@ -1914,6 +1996,47 @@ def _build_registry() -> list[_ToolSpec]:
             handler=_h_disable_background_tasks,
         ),
         _ToolSpec(
+            name="timeline_assemble",
+            description=(
+                "Workflow tool: assemble a rough cut in one call. Ensures the "
+                "timeline exists, imports any media given by path (into an "
+                "optional bin), and appends every item in order. Use "
+                "timeline_append instead when you need per-item track targeting."
+            ),
+            schema=_schema(
+                {
+                    "timeline": {"type": "string"},
+                    "fps": {"type": "number", "description": "Optional timeline frame rate."},
+                    "bin": {
+                        "type": "string",
+                        "description": "Bin path (e.g. 'Footage/Day01') to import into.",
+                    },
+                    "items": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {
+                                    "type": "string",
+                                    "description": "File path to import (or reuse if imported).",
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Existing media-pool clip name (alternative to path).",
+                                },
+                                "start_frame": {"type": "integer"},
+                                "end_frame": {"type": "integer"},
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                required=["timeline", "items"],
+            ),
+            handler=_h_timeline_assemble,
+        ),
+        _ToolSpec(
             name="timeline_append",
             description=(
                 "Append media to a timeline with explicit track targeting. Supports "
@@ -2002,7 +2125,9 @@ def _build_registry() -> list[_ToolSpec]:
             description=(
                 "Reconcile the live Resolve state to match a declarative spec "
                 "(YAML/JSON file path). Returns the list of actions taken (or "
-                "would be taken, when dry_run=true)."
+                "would be taken, when dry_run=true). Set transactional=true to "
+                "snapshot first and auto-rollback on failure; verify=true to "
+                "read every setting back after writing."
             ),
             schema=_schema(
                 {
@@ -2010,10 +2135,29 @@ def _build_registry() -> list[_ToolSpec]:
                     "dry_run": {"type": "boolean", "default": False},
                     "run_hooks": {"type": "boolean", "default": True},
                     "continue_on_error": {"type": "boolean", "default": False},
+                    "transactional": {"type": "boolean", "default": False},
+                    "verify": {"type": "boolean", "default": False},
                 },
                 required=["spec_path"],
             ),
             handler=_h_apply_spec,
+        ),
+        _ToolSpec(
+            name="spec_export",
+            description=(
+                "Build a declarative spec from live project state (the inverse "
+                "of apply_spec) — settings, bins, timelines, tracks, markers. "
+                "Use it to adopt an existing project into spec-managed workflows."
+            ),
+            schema=_schema(
+                {
+                    "project": {
+                        "type": "string",
+                        "description": "Project to export. Default: the current project.",
+                    }
+                }
+            ),
+            handler=_h_spec_export,
         ),
         # ---- snapshot --------------------------------------------------
         _ToolSpec(
@@ -2065,6 +2209,92 @@ def _build_registry() -> list[_ToolSpec]:
             handler=_h_eval,
         ),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Resources — live state agents can *read* instead of guessing.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ResourceSpec:
+    """One MCP resource: a URI backed by a JSON-producing reader."""
+
+    uri: str
+    name: str
+    description: str
+    handler: Callable[[_Context], Any]
+    needs_resolve: bool = True
+
+
+def _build_resource_registry() -> list[_ResourceSpec]:
+    from .. import schema as schema_mod
+
+    def _schema_reader(topic: str) -> Callable[[_Context], Any]:
+        return lambda _ctx: schema_mod.get_topic(topic)
+
+    resources = [
+        _ResourceSpec(
+            uri="dvr://inspect",
+            name="Resolve state",
+            description="One-call snapshot of Resolve, current project, and current timeline.",
+            handler=lambda ctx: ctx.resolve().inspect(),
+        ),
+        _ResourceSpec(
+            uri="dvr://project/current",
+            name="Current project",
+            description="Inspect the currently loaded project (timelines, counts).",
+            handler=lambda ctx: _current_project(ctx).inspect(),
+        ),
+        _ResourceSpec(
+            uri="dvr://timeline/current",
+            name="Current timeline",
+            description="Full inspect of the current timeline: tracks, items, markers.",
+            handler=lambda ctx: _read_current_timeline(ctx),
+        ),
+        _ResourceSpec(
+            uri="dvr://media/bins",
+            name="Media pool bins",
+            description="The current project's bin tree.",
+            handler=lambda ctx: [b.inspect() for b in _current_project(ctx).media.root.subbins()],
+        ),
+        _ResourceSpec(
+            uri="dvr://render/queue",
+            name="Render queue",
+            description="Jobs currently in the render queue.",
+            handler=lambda ctx: list(ctx.resolve().render.queue()),
+        ),
+        _ResourceSpec(
+            uri="dvr://doctor",
+            name="Setup diagnostics",
+            description="Static dvr <-> Resolve environment diagnosis (no connection attempt).",
+            handler=lambda ctx: _h_doctor(ctx, {}),
+            needs_resolve=False,
+        ),
+    ]
+    for topic in ("clip-properties", "settings", "color-presets", "export-formats"):
+        resources.append(
+            _ResourceSpec(
+                uri=f"dvr://schema/{topic}",
+                name=f"Schema: {topic}",
+                description=f"Catalog of known-good values for {topic}.",
+                handler=_schema_reader(topic),
+                needs_resolve=False,
+            )
+        )
+    return resources
+
+
+def _read_current_timeline(ctx: _Context) -> dict[str, Any]:
+    tl = ctx.resolve().timeline.current
+    if tl is None:
+        raise errors.TimelineError("No timeline is currently loaded.")
+    return tl.inspect()
+
+
+def list_resource_specs() -> list[_ResourceSpec]:
+    """Return the resource registry. Public so tests / CLI can introspect."""
+    return _build_resource_registry()
 
 
 # ---------------------------------------------------------------------------
@@ -2143,12 +2373,24 @@ def list_tools_metadata() -> list[dict[str, Any]]:
 
 
 def build_server(*, auto_launch: bool = True, timeout: float = 30.0) -> Server:
-    """Construct an MCP Server with all `dvr` tools registered."""
+    """Construct an MCP Server with all `dvr` tools and resources registered."""
     server = Server("dvr")
     cache = _ResolveCache(auto_launch=auto_launch, timeout=timeout)
     specs = _build_registry()
     registry = {s.name: s for s in specs}
     tools = [Tool(name=s.name, description=s.description, inputSchema=s.schema) for s in specs]
+
+    resource_specs = _build_resource_registry()
+    resource_registry = {r.uri: r for r in resource_specs}
+    resources = [
+        Resource(
+            uri=r.uri,  # type: ignore[arg-type]
+            name=r.name,
+            description=r.description,
+            mimeType="application/json",
+        )
+        for r in resource_specs
+    ]
 
     @server.list_tools()
     async def _list_tools() -> list[Tool]:
@@ -2157,6 +2399,20 @@ def build_server(*, auto_launch: bool = True, timeout: float = 30.0) -> Server:
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict[str, Any] | None) -> CallToolResult:
         return _dispatch(registry, cache, name, arguments or {})
+
+    @server.list_resources()
+    async def _list_resources() -> list[Resource]:
+        return resources
+
+    @server.read_resource()
+    async def _read_resource(uri: Any) -> str:
+        spec = resource_registry.get(str(uri))
+        if spec is None:
+            raise errors.DvrError(
+                f"Unknown resource: {uri}",
+                fix=f"Available: {', '.join(resource_registry)}",
+            )
+        return _serialize(spec.handler(_Context(cache=cache)))
 
     return server
 
@@ -2176,6 +2432,7 @@ def run_stdio(*, auto_launch: bool = True, timeout: float = 30.0) -> None:
 
 __all__ = [
     "build_server",
+    "list_resource_specs",
     "list_tool_specs",
     "list_tools_metadata",
     "run_stdio",

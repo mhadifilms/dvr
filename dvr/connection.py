@@ -383,6 +383,12 @@ def connect(
             handle = _try_pinghosts(dvr_script, timeout=call_timeout)
 
         if handle is not None:
+            record_path = os.environ.get("DVR_RECORD")
+            if record_path:
+                from .vcr import wrap_recording
+
+                logger.info("recording scripting traffic to %s", record_path)
+                handle = wrap_recording(handle, record_path)
             try:
                 version = handle.GetVersionString()
                 logger.info("connected to DaVinci Resolve %s", version)

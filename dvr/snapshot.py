@@ -11,14 +11,17 @@ to round-trip every edit (Fusion node graphs, color grades, magic mask
 strokes are all opaque). What it captures:
 
 * project name + selected color/HDR settings
-* every timeline's name, FPS, settings, and markers
+* the media-pool bin tree (nested paths)
+* every timeline's name, FPS, track counts, settings, and markers
 
 That's enough for almost every "I broke something, get me back to before"
 use case, and it's exactly what ``dvr apply`` knows how to reconcile.
+It is also what backs transactional ``dvr apply --transactional``.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -32,7 +35,8 @@ if TYPE_CHECKING:
     from .resolve import Resolve
 
 
-SNAPSHOT_VERSION = 1
+# v2 added "bins" (nested bin paths) and per-timeline "tracks" counts.
+SNAPSHOT_VERSION = 2
 
 
 @dataclass
@@ -87,28 +91,14 @@ def _path_for(name: str) -> Path:
 # Capture
 # ---------------------------------------------------------------------------
 
-# Subset of project settings worth capturing. (The full GetSetting() set
-# returns >200 keys; most are UI prefs we don't want to round-trip.)
-_CAPTURED_SETTINGS = (
-    "colorScienceMode",
-    "isAutoColorManage",
-    "separateColorSpaceAndGamma",
-    "colorSpaceInput",
-    "colorSpaceInputGamma",
-    "colorSpaceTimeline",
-    "colorSpaceTimelineGamma",
-    "colorSpaceOutput",
-    "colorSpaceOutputGamma",
-    "timelineWorkingLuminanceMode",
-    "hdrMasteringLuminanceMax",
-    "hdrMasteringOn",
-    "inputDRT",
-    "outputDRT",
-    "timelineFrameRate",
-    "timelineResolutionWidth",
-    "timelineResolutionHeight",
-    "videoMonitorFormat",
-)
+
+def _captured_settings() -> tuple[str, ...]:
+    # Shared with the spec engine so snapshots and specs round-trip the
+    # same subset. (The full GetSetting() set returns >200 keys; most are
+    # UI prefs we don't want to round-trip.)
+    from .spec import CAPTURED_SETTINGS
+
+    return CAPTURED_SETTINGS
 
 
 def capture(resolve: Resolve, *, name: str | None = None) -> Snapshot:
@@ -121,13 +111,17 @@ def capture(resolve: Resolve, *, name: str | None = None) -> Snapshot:
         )
 
     settings: dict[str, str] = {}
-    for key in _CAPTURED_SETTINGS:
+    for key in _captured_settings():
         try:
             value = project.get_setting(key)
         except Exception:
             continue
         if value is not None:
             settings[key] = str(value)
+
+    bins: list[str] = []
+    with contextlib.suppress(Exception):  # boundary: media pool unavailable
+        _collect_bin_paths(project.media.root, "", bins)
 
     timelines: list[dict[str, Any]] = []
     for tl in project.timeline.list():
@@ -143,6 +137,12 @@ def capture(resolve: Resolve, *, name: str | None = None) -> Snapshot:
                     "custom_data": str(info.get("customData", "")),
                 }
             )
+        tracks: dict[str, int] = {}
+        for track_type in ("video", "audio", "subtitle"):
+            try:
+                tracks[track_type] = int(tl.track_count(track_type))
+            except Exception:  # boundary
+                continue
         timelines.append(
             {
                 "name": tl.name,
@@ -150,6 +150,7 @@ def capture(resolve: Resolve, *, name: str | None = None) -> Snapshot:
                 "duration_frames": tl.duration_frames,
                 "start_timecode": tl.start_timecode,
                 "markers": markers,
+                "tracks": tracks,
             }
         )
 
@@ -159,8 +160,15 @@ def capture(resolve: Resolve, *, name: str | None = None) -> Snapshot:
         name=final_name,
         project=project.name,
         captured_at=captured_at,
-        data={"settings": settings, "timelines": timelines},
+        data={"settings": settings, "bins": bins, "timelines": timelines},
     )
+
+
+def _collect_bin_paths(folder: Any, prefix: str, out: list[str]) -> None:
+    for sub in folder.subfolders:
+        path = f"{prefix}/{sub.name}" if prefix else str(sub.name)
+        out.append(path)
+        _collect_bin_paths(sub, path, out)
 
 
 def save(snapshot: Snapshot) -> Path:
@@ -214,7 +222,13 @@ def restore(resolve: Resolve, snapshot: Snapshot, *, dry_run: bool = False) -> d
     each timeline + its markers exist. Returns counts of what changed.
     """
     project = resolve.project.ensure(snapshot.project)
-    counts = {"settings_applied": 0, "timelines_ensured": 0, "markers_added": 0}
+    counts = {
+        "settings_applied": 0,
+        "bins_ensured": 0,
+        "timelines_ensured": 0,
+        "tracks_added": 0,
+        "markers_added": 0,
+    }
 
     # Settings (HDR-ordered keys first).
     from .spec import SETTINGS_ORDER
@@ -229,12 +243,27 @@ def restore(resolve: Resolve, snapshot: Snapshot, *, dry_run: bool = False) -> d
             project.set_setting(key, value)
             counts["settings_applied"] += 1
 
-    # Timelines + markers.
+    # Bins (v2 snapshots; additive — existing bins are never deleted).
+    for bin_path in snapshot.data.get("bins", []):
+        if dry_run:
+            continue
+        project.media.ensure_folder_path(str(bin_path))
+        counts["bins_ensured"] += 1
+
+    # Timelines + tracks + markers.
     for tl_data in snapshot.data.get("timelines", []):
         if dry_run:
             continue
         tl = project.timeline.ensure(tl_data["name"])
         counts["timelines_ensured"] += 1
+        for track_type, count in (tl_data.get("tracks") or {}).items():
+            try:
+                while tl.track_count(str(track_type)) < int(count):
+                    tl.add_track(str(track_type))
+                    counts["tracks_added"] += 1
+            except errors.DvrError:
+                # Subtitle tracks can't always be added via API; keep going.
+                continue
         existing = tl.markers()
         for marker in tl_data.get("markers", []):
             frame = int(marker["frame"])

@@ -8,6 +8,7 @@ under ``dvr/cli/commands/`` and register it here.
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -31,8 +32,10 @@ from .commands import schema as schema_cmd
 from .commands import script as script_cmd
 from .commands import serve as serve_cmd
 from .commands import snapshot as snapshot_cmd
+from .commands import spec as spec_cmd
 from .commands import timeline as timeline_cmd
 from .plugins import load_plugins, plugin_app
+from .session import resolve_from_ctx
 
 app = typer.Typer(
     name="dvr",
@@ -172,6 +175,7 @@ app.add_typer(media_cmd.app, name="media")
 app.add_typer(render_cmd.app, name="render")
 app.add_typer(diff_cmd.app, name="diff")
 app.add_typer(snapshot_cmd.app, name="snapshot")
+app.add_typer(spec_cmd.app, name="spec")
 app.add_typer(schema_cmd.app, name="schema")
 app.add_typer(serve_cmd.app, name="serve")
 app.add_typer(mcp_cmd.app, name="mcp")
@@ -196,7 +200,7 @@ def _resolve_session(ctx: typer.Context) -> Iterator[Resolve]:
     """Open a Resolve connection; render structured errors and exit on failure."""
     cfg = ctx.obj or {}
     try:
-        r = Resolve(auto_launch=cfg.get("auto_launch", True), timeout=cfg.get("timeout", 30.0))
+        r = resolve_from_ctx(ctx)
     except errors.DvrError as exc:
         output.emit_error(exc, fmt=cfg.get("format"))
         raise typer.Exit(1) from exc
@@ -207,14 +211,102 @@ def _resolve_session(ctx: typer.Context) -> Iterator[Resolve]:
         raise typer.Exit(1) from exc
 
 
+# ---------------------------------------------------------------------------
+# Daemon forwarding
+# ---------------------------------------------------------------------------
+
+# Commands that must run in this process: daemon lifecycle itself, the MCP
+# stdio server, interactive / streaming commands, and local-only helpers.
+_DAEMON_BYPASS_COMMANDS = frozenset({"serve", "mcp", "completion", "plugin", "repl", "doctor"})
+
+
+def _should_bypass_daemon(argv: list[str]) -> bool:
+    """True when ``argv`` must run locally instead of via the daemon."""
+    if sys.platform == "win32":
+        return True
+    if os.environ.get("DVR_NO_DAEMON", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    if any(a in ("--help", "-h", "--version", "-V") for a in argv):
+        return True
+    first = next((a for a in argv if not a.startswith("-")), None)
+    if first is None or first in _DAEMON_BYPASS_COMMANDS:
+        return True
+    # Streaming / long-watch commands write progressively; the daemon
+    # buffers output until the command finishes, so run them locally.
+    if "--stream" in argv or "--wait" in argv:
+        return True
+    return first == "render" and "watch" in argv
+
+
+def _forward_to_daemon(argv: list[str]) -> int | None:
+    """Run ``argv`` via the daemon when one is available.
+
+    Returns the exit code, or ``None`` when the invocation should run
+    locally (no daemon, bypassed command, or a stale socket).
+    """
+    if _should_bypass_daemon(argv):
+        return None
+
+    from .. import daemon
+
+    if not daemon.socket_path().exists():
+        if os.environ.get("DVR_DAEMON", "").strip().lower() not in ("1", "true", "auto", "yes"):
+            return None
+        if not _spawn_daemon():
+            return None
+
+    # The daemon's stdout isn't the user's TTY, so resolve the format on
+    # this side and pass it explicitly unless the user already did.
+    forwarded = list(argv)
+    if not any(a in ("-f", "--format") or a.startswith("--format=") for a in forwarded):
+        forwarded = ["--format", output.resolve_format(None), *forwarded]
+
+    try:
+        result = daemon.Client(timeout=None).call("cli", {"argv": forwarded})
+    except errors.DvrError:
+        return None  # stale socket or old daemon without "cli" — run locally
+    if not isinstance(result, dict):
+        return None
+    sys.stdout.write(str(result.get("stdout", "")))
+    sys.stderr.write(str(result.get("stderr", "")))
+    return int(result.get("exit_code", 0))
+
+
+def _spawn_daemon() -> bool:
+    """Start a background daemon (DVR_DAEMON=auto); wait briefly for the socket."""
+    import subprocess
+    import time
+
+    from .. import daemon
+
+    subprocess.Popen(
+        [sys.executable, "-m", "dvr", "serve", "start", "--foreground"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if daemon.socket_path().exists():
+            return True
+        time.sleep(0.1)
+    return False
+
+
 def main() -> None:
     """Console-script entry point.
 
-    Catches :class:`~dvr.errors.DvrError` from *any* command so library
+    Transparently forwards to a running dvr daemon (persistent Resolve
+    connection, no per-command cold connect) when one is available, and
+    catches :class:`~dvr.errors.DvrError` from *any* command so library
     failures always render as structured output (JSON on stderr when
     piped) instead of a Python traceback.
     """
     try:
+        code = _forward_to_daemon(sys.argv[1:])
+        if code is not None:
+            sys.exit(code)
         app()
     except errors.DvrError as exc:
         output.emit_error(exc)

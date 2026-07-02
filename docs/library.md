@@ -216,6 +216,43 @@ album = g.create_still_album("Hero shots")
 album.import_stills(["/Volumes/stills/01.png"])
 ```
 
+## Transactions
+
+```python
+with r.transaction():
+    r.project.current.set_setting("timelineFrameRate", "24")
+    r.timeline.ensure("Edit_v3")
+    # any DvrError in this block restores the pre-block snapshot
+```
+
+`r.transaction()` captures a [snapshot](cli.md) of the current project on entry and restores it if the block raises a `DvrError` (the snapshot name is attached to the error's `state`). Only snapshot-representable state rolls back — settings, bins, timelines, tracks, markers; media imports and renders are not undone. The same machinery backs `dvr apply --transactional`.
+
+## Typed settings
+
+```python
+s = r.project.require_current().settings
+s.timeline_frame_rate = "24"          # snake_case -> Resolve keys
+s.hdr_mastering_on = True             # bools normalized to "1"/"0"
+s.color_science_mode = "nope"         # SettingsError: valid values listed
+s.describe("color_science_mode")      # schema metadata for any setting
+```
+
+The attribute map is derived from the `dvr.schema` catalogs, and enum / bool-string values are validated *before* the write, so invalid values fail loudly instead of being silently ignored by Resolve. Unknown keys still pass through untouched.
+
+## Record / replay (VCR)
+
+```bash
+DVR_RECORD=session.jsonl dvr timeline inspect   # record real Resolve traffic
+```
+
+```python
+from dvr import vcr
+r = vcr.resolve_from_cassette("session.jsonl")  # replays with no Resolve
+r.timeline.current.inspect()                    # served from disk
+```
+
+Every scripting call (method, args, result) is appended to a JSONL cassette; replaying it runs the same library code against the recorded responses — in CI, on machines without Resolve — and raises a structured error on divergence. This captures what Resolve *actually* returns, where hand-written mocks only capture what we believe it returns.
+
 ## Errors
 
 Every failure raises a subclass of `dvr.errors.DvrError`. See [Errors and diagnostics](concepts/errors.md).

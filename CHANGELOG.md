@@ -8,6 +8,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Transparent daemon forwarding.** When a `dvr serve` daemon is running,
+  every ordinary CLI command automatically routes through it over the Unix
+  socket and reuses its persistent Resolve connection — ~50ms per command
+  instead of a 2-3s cold connect, with identical stdout/stderr/exit codes.
+  The daemon gained a `cli` wire method (`daemon.run_cli()`); interactive,
+  streaming, and daemon-lifecycle commands still run locally.
+  `DVR_NO_DAEMON=1` opts out; `DVR_DAEMON=auto` auto-spawns the daemon on
+  first use.
+- **Transactional + verified apply.** `dvr apply --transactional` snapshots
+  the project before mutating and restores it automatically when any action
+  fails (the error reports the snapshot and rollback). `--verify` reads
+  every setting back after writing and fails loudly when Resolve silently
+  ignores a value. Both are exposed on the `apply_spec` MCP tool and
+  `dvr.spec.apply()`. A general-purpose `Resolve.transaction()` context
+  manager backs the same behavior for library code.
+- **Higher-fidelity specs and snapshots.** Specs now declare media-pool
+  `bins` (nested `A/B/C` paths) and per-timeline minimum `tracks` counts;
+  `dvr plan` / `dvr apply` / `dvr diff spec` all understand them. Snapshots
+  (v2) capture the bin tree and per-timeline track counts and restore both.
+- **`dvr spec export`** (library: `dvr.spec.from_live()`, MCP:
+  `spec_export`) — reverse-engineer a spec from live project state so an
+  existing project can be adopted into declarative management, terraform
+  import style.
+- **Agent-oriented MCP surface.** The server now publishes MCP *resources*
+  (`dvr://inspect`, `dvr://timeline/current`, `dvr://media/bins`,
+  `dvr://render/queue`, `dvr://doctor`, `dvr://schema/<topic>`) so clients
+  can read live state instead of spending tool calls on it; a
+  `timeline_assemble` workflow tool that imports media and assembles a
+  rough cut in one call; and `render_wait`, which blocks until a render job
+  finishes instead of forcing agents to poll `render_status`.
+- **Record/replay harness (`dvr.vcr`).** Set `DVR_RECORD=<path>` to capture
+  every fusionscript call (method, args, result) to a JSONL cassette while
+  running against a real Resolve; replay it later with
+  `vcr.resolve_from_cassette(path)` on machines without Resolve. Replays
+  raise a structured error on divergence — mock-free regression tests from
+  real recorded behavior.
+- **Typed, validated settings.** `project.settings` attribute names are now
+  derived from the `dvr.schema` catalogs (every `PROJECT_SETTINGS` /
+  `CAPTURED_SETTINGS` key gets a snake_case attribute), enum and
+  bool-string values are validated *before* the write (invalid values raise
+  `SettingsError` with the valid list; bools normalize to `"0"`/`"1"`), and
+  `settings.describe(name)` returns the schema metadata for any setting.
 - `dvr doctor` CLI command — the setup diagnostics that previously existed
   only as an MCP tool. Backed by a new shared `dvr.doctor.diagnose()`
   library function (static probe by default, `--probe` attempts a live

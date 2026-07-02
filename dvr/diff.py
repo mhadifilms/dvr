@@ -209,6 +209,15 @@ def _live_snapshot(resolve: Resolve, spec: Spec) -> dict[str, Any]:
     keys.update(_preset_keys_for(spec.color_preset))
     if keys:
         snapshot["settings"] = {k: project.get_setting(k) for k in sorted(keys)}
+    if spec.bins:
+        bins: list[dict[str, Any]] = []
+        for bin_path in spec.bins:
+            try:
+                project.media.find_folder_path(bin_path)
+                bins.append({"name": bin_path, "exists": True})
+            except Exception:
+                bins.append({"name": bin_path, "exists": False})
+        snapshot["bins"] = bins
     timelines: list[dict[str, Any]] = []
     for tl_spec in spec.timelines:
         try:
@@ -221,6 +230,13 @@ def _live_snapshot(resolve: Resolve, spec: Spec) -> dict[str, Any]:
             info["fps"] = tl.fps
         if tl_spec.settings:
             info["settings"] = {k: tl.get_setting(k) for k in sorted(tl_spec.settings)}
+        if tl_spec.tracks:
+            # Spec tracks are minimum counts: when the live count already
+            # satisfies the floor, report the floor so the diff is clean.
+            info["tracks"] = {
+                t: min(int(tl.track_count(t)), int(tl_spec.tracks[t]))
+                for t in sorted(tl_spec.tracks)
+            }
         if tl_spec.markers:
             existing = tl.markers()
             info["markers"] = [
@@ -245,6 +261,8 @@ def _spec_snapshot(spec: Spec, color_presets: dict[str, dict[str, str]]) -> dict
     settings.update(spec.settings)
     if settings:
         desired["settings"] = dict(sorted(settings.items()))
+    if spec.bins:
+        desired["bins"] = [{"name": bin_path, "exists": True} for bin_path in spec.bins]
     timelines: list[dict[str, Any]] = []
     for tl_spec in spec.timelines:
         info: dict[str, Any] = {"name": tl_spec.name, "exists": True}
@@ -252,6 +270,8 @@ def _spec_snapshot(spec: Spec, color_presets: dict[str, dict[str, str]]) -> dict
             info["fps"] = tl_spec.fps
         if tl_spec.settings:
             info["settings"] = dict(sorted(tl_spec.settings.items()))
+        if tl_spec.tracks:
+            info["tracks"] = {t: int(n) for t, n in sorted(tl_spec.tracks.items())}
         if tl_spec.markers:
             info["markers"] = [
                 {

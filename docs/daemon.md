@@ -13,6 +13,18 @@ dvr timeline inspect             # ~50ms
 dvr serve stop
 ```
 
+## Transparent CLI forwarding
+
+While the daemon is running, **every ordinary `dvr` command automatically routes through it** — no flags needed. The client forwards its arguments over the socket, the daemon executes the command in-process against its persistent Resolve connection, and stdout/stderr/exit code come back unchanged. You keep the exact same CLI; you just stop paying the cold connect.
+
+What always runs locally instead:
+
+- `dvr serve ...`, `dvr mcp ...`, `dvr completion`, `dvr plugin`, `dvr repl`, `dvr doctor`
+- streaming / long-blocking commands (`render watch`, anything with `--stream` or `--wait`)
+- anything when `DVR_NO_DAEMON=1` is set
+
+Set `DVR_DAEMON=auto` to have the first `dvr` command spawn the daemon automatically when the socket doesn't exist yet.
+
 ## Status
 
 ```bash

@@ -46,6 +46,23 @@ def register(app: typer.Typer) -> None:
             bool,
             typer.Option("--yes", "-y", help="Skip the confirmation prompt."),
         ] = False,
+        transactional: Annotated[
+            bool,
+            typer.Option(
+                "--transactional/--no-transactional",
+                help=(
+                    "Snapshot the project before applying; on failure, restore it "
+                    "and report the rollback."
+                ),
+            ),
+        ] = False,
+        verify: Annotated[
+            bool,
+            typer.Option(
+                "--verify",
+                help="Read every setting back after writing; fail on silent rejection.",
+            ),
+        ] = False,
     ) -> None:
         """Reconcile a spec against the live DaVinci Resolve state."""
         cfg = ctx.obj or {}
@@ -65,7 +82,13 @@ def register(app: typer.Typer) -> None:
         if not yes:
             typer.confirm(f"Apply {len(actions)} action(s) to {spec.project!r}?", abort=True)
 
-        applied = spec_mod.apply(spec, resolve, dry_run=False)
+        applied = spec_mod.apply(
+            spec,
+            resolve,
+            dry_run=False,
+            transactional=transactional,
+            verify=verify,
+        )
         output.emit(
             {"applied": len(applied), "project": spec.project},
             fmt=cfg.get("format"),

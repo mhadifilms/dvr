@@ -790,7 +790,7 @@ def _looks_like_hdr_pq_aces(value: str) -> bool:
 # Map snake_case attribute → Resolve string key. Keep this small and
 # focused on settings an integration consumer / common workflows actually touch.
 # Anything missing is reachable via proj.get_setting/set_setting.
-_SETTING_KEYS: dict[str, str] = {
+_MANUAL_SETTING_KEYS: dict[str, str] = {
     "timeline_resolution_width": "timelineResolutionWidth",
     "timeline_resolution_height": "timelineResolutionHeight",
     "timeline_frame_rate": "timelineFrameRate",
@@ -812,15 +812,84 @@ _SETTING_KEYS: dict[str, str] = {
     "separate_color_space_and_gamma": "separateColorSpaceAndGamma",
 }
 
+_SETTING_KEYS_CACHE: dict[str, str] | None = None
+
+
+def _snake_case(key: str) -> str:
+    """``timelineFrameRate`` -> ``timeline_frame_rate``, ``inputDRT`` -> ``input_drt``."""
+    import re
+
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", key)
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    return s.lower()
+
+
+def _setting_keys() -> dict[str, str]:
+    """snake_case -> Resolve key mapping, derived from the schema catalogs.
+
+    Every key in :data:`dvr.schema.PROJECT_SETTINGS` and
+    :data:`dvr.spec.CAPTURED_SETTINGS` gets an attribute automatically,
+    plus the curated manual aliases above.
+    """
+    global _SETTING_KEYS_CACHE
+    if _SETTING_KEYS_CACHE is None:
+        from . import schema as schema_mod
+        from .spec import CAPTURED_SETTINGS
+
+        derived = {
+            _snake_case(key): key for key in (*schema_mod.PROJECT_SETTINGS, *CAPTURED_SETTINGS)
+        }
+        derived.update(_MANUAL_SETTING_KEYS)
+        _SETTING_KEYS_CACHE = derived
+    return _SETTING_KEYS_CACHE
+
+
+def _validate_setting_value(key: str, value: Any) -> Any:
+    """Validate ``value`` against the schema catalog; return the value to write.
+
+    Enum settings reject unknown values with the valid list in the error.
+    Bool-string settings accept real booleans and normalize them to "0"/"1".
+    Unknown keys pass through untouched (Resolve is the authority).
+    """
+    from . import schema as schema_mod
+
+    meta = schema_mod.PROJECT_SETTINGS.get(key)
+    if not meta:
+        return value
+    kind = meta.get("type")
+    if kind == "enum" and str(value) not in meta.get("values", []):
+        raise errors.SettingsError(
+            f"Invalid value {value!r} for setting {key!r}.",
+            fix=f"Use one of: {', '.join(meta['values'])}",
+            state={"key": key, "value": value, "valid": meta["values"]},
+        )
+    if kind == "bool-string":
+        if isinstance(value, bool):
+            return "1" if value else "0"
+        if str(value) not in ("0", "1"):
+            raise errors.SettingsError(
+                f"Setting {key!r} expects '0' or '1' (or a bool).",
+                state={"key": key, "value": value},
+            )
+    return value
+
 
 class Settings:
-    """Typed proxy for project settings.
+    """Typed, validated proxy for project settings.
 
-    Attribute access maps snake_case names to Resolve setting keys when a
-    mapping exists; otherwise it passes through the raw string key. Use
-    ``in`` to check for a known mapped attribute::
+    Attribute access maps snake_case names to Resolve setting keys. The
+    mapping is derived from the :mod:`dvr.schema` catalogs (every key in
+    ``PROJECT_SETTINGS`` and ``CAPTURED_SETTINGS``) plus a curated set of
+    aliases — so ``proj.settings.timeline_frame_rate = "24"`` works, and
+    ``proj.settings.color_science_mode = "not-a-mode"`` raises a
+    :class:`~dvr.errors.SettingsError` listing valid values *before*
+    Resolve gets a chance to silently ignore it.
+
+    ::
 
         proj.settings.timeline_resolution_width = 3840
+        proj.settings.hdr_mastering_on = True          # normalized to "1"
+        proj.settings.describe("color_science_mode")   # schema metadata
         if "color_science_mode" in proj.settings:
             ...
 
@@ -834,12 +903,12 @@ class Settings:
         object.__setattr__(self, "_project", project)
 
     def __contains__(self, name: str) -> bool:
-        return name in _SETTING_KEYS
+        return name in _setting_keys()
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
-        key = _SETTING_KEYS.get(name, name)
+        key = _setting_keys().get(name, name)
         value = self._project.get_setting(key)
         return value
 
@@ -847,8 +916,8 @@ class Settings:
         if name.startswith("_"):
             object.__setattr__(self, name, value)
             return
-        key = _SETTING_KEYS.get(name, name)
-        self._project.set_setting(key, value)
+        key = _setting_keys().get(name, name)
+        self._project.set_setting(key, _validate_setting_value(key, value))
 
     def get(self, key: str, default: Any = None) -> Any:
         """Look up by raw Resolve key (string), with a default."""
@@ -858,9 +927,19 @@ class Settings:
             return default
         return value if value is not None and value != "" else default
 
+    def describe(self, name: str) -> dict[str, Any]:
+        """Return schema metadata (type, valid values, notes) for a setting.
+
+        Accepts either the snake_case attribute name or the raw Resolve key.
+        """
+        key = _setting_keys().get(name, name)
+        from . import schema as schema_mod
+
+        return {"key": key, **schema_mod.PROJECT_SETTINGS.get(key, {})}
+
     def keys(self) -> list[str]:
         """Mapped snake_case attribute names. Not exhaustive."""
-        return list(_SETTING_KEYS.keys())
+        return sorted(_setting_keys().keys())
 
     def as_dict(self) -> dict[str, Any]:
         """Return a flat snapshot of all project settings (string-keyed)."""

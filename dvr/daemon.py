@@ -110,7 +110,67 @@ _METHODS: dict[str, tuple[str, bool]] = {
 
 def methods() -> list[str]:
     """Return the sorted allow-list of RPC method names the daemon accepts."""
-    return sorted(_METHODS)
+    return sorted([*_METHODS, "cli"])
+
+
+# ---------------------------------------------------------------------------
+# Full-CLI execution ("cli" method)
+# ---------------------------------------------------------------------------
+
+# The dotted-path allow-list above predates this: the daemon can now run
+# *any* dvr CLI command in-process, reusing its persistent Resolve
+# connection. Output redirection is process-global, so executions are
+# serialized behind this lock.
+_CLI_LOCK = threading.Lock()
+
+
+def run_cli(argv: list[str]) -> dict[str, Any]:
+    """Execute a dvr CLI command in this process; return stdout/stderr/exit code.
+
+    Used by the daemon to serve forwarded CLI invocations. The caller is
+    responsible for having installed a resolve provider (see
+    :func:`dvr.cli.session.set_resolve_provider`) if a persistent
+    connection should be reused.
+    """
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    from .cli.main import app
+
+    stdout, stderr = io.StringIO(), io.StringIO()
+    exit_code = 0
+    with _CLI_LOCK, redirect_stdout(stdout), redirect_stderr(stderr):
+        try:
+            # With standalone_mode=False click returns the exit code for
+            # typer.Exit / ctx.exit instead of calling sys.exit.
+            rv = app(args=list(argv), prog_name="dvr", standalone_mode=False)
+            if isinstance(rv, int):
+                exit_code = rv
+        except errors.DvrError as exc:
+            from .cli import output as cli_output
+
+            cli_output.emit_error(exc)
+            exit_code = 1
+        except SystemExit as exc:  # e.g. typer --version callback
+            code = exc.code
+            exit_code = code if isinstance(code, int) else (0 if code is None else 1)
+        except Exception as exc:
+            # Click exception handling is duck-typed because typer may
+            # vendor its own click (`typer._click`), so isinstance checks
+            # against the standalone `click` package don't match.
+            show = getattr(exc, "show", None)
+            code = getattr(exc, "exit_code", None)
+            if callable(show) and code is not None:  # ClickException / UsageError
+                show(file=stderr)
+                exit_code = int(code)
+            elif code is not None:  # click.exceptions.Exit
+                exit_code = int(code)
+            elif type(exc).__name__ == "Abort":
+                stderr.write("aborted\n")
+                exit_code = 1
+            else:
+                raise
+    return {"stdout": stdout.getvalue(), "stderr": stderr.getvalue(), "exit_code": exit_code}
 
 
 def _serialize(value: Any) -> Any:
@@ -200,6 +260,10 @@ class _Handler(socketserver.StreamRequestHandler):
             method = req.get("method", "")
             params = req.get("params")
             try:
+                if method == "cli":
+                    argv = list((params or {}).get("argv") or [])
+                    self._reply({"id": req_id, "ok": True, "result": run_cli(argv)})
+                    continue
                 # Get a live Resolve handle on every request — this hides
                 # Resolve quit/restart cycles from the client.
                 peer = self.server.get_resolve()
@@ -296,6 +360,12 @@ def serve(*, auto_launch: bool = True, timeout: float = 30.0) -> None:
     os.chmod(sock, 0o600)
     pid_path().write_text(str(os.getpid()))
 
+    # Forwarded CLI commands (the "cli" method) reuse this server's
+    # persistent connection instead of opening their own.
+    from .cli import session as cli_session
+
+    cli_session.set_resolve_provider(server.get_resolve)
+
     # Eagerly establish the first connection so problems surface up-front
     # rather than on first client request.
     try:
@@ -309,6 +379,7 @@ def serve(*, auto_launch: bool = True, timeout: float = 30.0) -> None:
     try:
         server.serve_forever()
     finally:
+        cli_session.set_resolve_provider(None)
         server.server_close()
         with suppress(FileNotFoundError):
             sock.unlink()
@@ -338,9 +409,13 @@ def _ping_existing(timeout: float = 0.5) -> bool:
 
 
 class Client:
-    """Synchronous client for a running daemon."""
+    """Synchronous client for a running daemon.
 
-    def __init__(self, path: Path | None = None, timeout: float = 60.0) -> None:
+    ``timeout=None`` means block indefinitely — used for forwarded CLI
+    commands whose runtime is unbounded (e.g. long renders).
+    """
+
+    def __init__(self, path: Path | None = None, timeout: float | None = 60.0) -> None:
         self._path = path or socket_path()
         self._timeout = timeout
 
@@ -417,4 +492,4 @@ def status() -> dict[str, Any]:
     return {"running": running, "pid": pid, "socket": str(sock)}
 
 
-__all__ = ["Client", "methods", "serve", "socket_path", "status", "stop_daemon"]
+__all__ = ["Client", "methods", "run_cli", "serve", "socket_path", "status", "stop_daemon"]

@@ -93,11 +93,14 @@ dvr mcp tools --detail  # full descriptions and JSON schemas
 | `media_inspect` / `media_bins` / `media_ls` / `media_import` | Media pool. |
 | `media_scan` | Scan a filesystem folder for importable video/audio files, skipping hidden AppleDouble files by default. |
 | `media_bin_ensure` / `media_bin_delete` / `media_move` | Create/delete nested bins and move media-pool clips without breaking timelines. Slash paths like `Picture/Plates` are accepted consistently. |
+| `timeline_assemble` | **Workflow tool:** ensure a timeline, import media by path, and append every item in order — a rough cut in one call. |
 | `render_queue` / `render_presets` / `render_formats` / `render_codecs` | Render config. |
 | `render_submit` / `render_status` / `render_stop` / `render_clear` | Render control. |
+| `render_wait` | Block until a job finishes (or fails / times out) and return its final status — prefer this over polling `render_status`. |
 | `interchange_export` | Export EDL / AAF / FCPXML / OTIO / etc. |
 | `diff_timelines` / `diff_to_spec` | Structured diffs. |
-| `apply_spec` | Reconcile live state to a YAML/JSON spec (with optional `dry_run` and `continue_on_error`). |
+| `apply_spec` | Reconcile live state to a YAML/JSON spec. Supports `dry_run`, `continue_on_error`, `transactional` (snapshot + auto-rollback), and `verify` (read-back checks). |
+| `spec_export` | Build a spec from live project state — adopt an existing project into spec-managed workflows. |
 | `snapshot_save` / `snapshot_restore` | Capture/restore project state. |
 | `lint` | Pre-flight validation. |
 | `eval` | Power-user Python eval. **Disabled** unless `DVR_MCP_ENABLE_EVAL=1`. |
@@ -109,6 +112,22 @@ show-specific pipeline commands. Agents can combine `media_scan`,
 `media_import`, `media_bin_ensure`, `media_move`, and `timeline_append` to build
 custom ingest or assembly workflows while each step remains inspectable and
 recoverable.
+
+## Resources — read state, don't guess it
+
+Alongside tools, the server exposes live state as MCP **resources** (JSON):
+
+| URI | Contents |
+|-----|----------|
+| `dvr://inspect` | One-call snapshot of Resolve, current project, current timeline. |
+| `dvr://project/current` | Current project inspect. |
+| `dvr://timeline/current` | Full current-timeline inspect: tracks, items, markers. |
+| `dvr://media/bins` | The current project's bin tree. |
+| `dvr://render/queue` | Jobs in the render queue. |
+| `dvr://doctor` | Static setup diagnostics (no Resolve needed). |
+| `dvr://schema/<topic>` | Static catalogs: `settings`, `clip-properties`, `color-presets`, `export-formats`. |
+
+Clients that support resources can attach these to context instead of burning tool calls on state reads.
 
 ## Errors are first-class
 

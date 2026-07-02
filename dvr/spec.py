@@ -14,9 +14,15 @@ Spec schema (informal)
     color_preset: rec2020_pq_4000              # optional
     settings:                                  # optional, raw key/value
       timelineFrameRate: "24"
+    bins:                                      # optional, nested "A/B/C" paths
+      - Footage/Day01
+      - Audio
     timelines:
       - name: Edit_v2
         fps: 24
+        tracks:                                # optional, minimum track counts
+          video: 3
+          audio: 4
         markers:                               # optional
           - {frame: 0, color: Blue, name: HEAD}
         titles:                                # optional
@@ -26,10 +32,18 @@ Spec schema (informal)
             size: 0.12
             color: "#ffcc00"
             align: center
+
+Applying supports two safety levers:
+
+* ``transactional=True`` — capture a snapshot of the project before
+  mutating; on any failure, restore it and report the rollback.
+* ``verify=True`` — read every setting back after writing it and fail
+  loudly when Resolve silently ignored the write.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from collections.abc import Callable
@@ -210,6 +224,7 @@ class TimelineSpec:
     markers: list[dict[str, Any]] = field(default_factory=list)
     clip_properties: list[ClipOperationSpec] = field(default_factory=list)
     titles: list[TitleSpec] = field(default_factory=list)
+    tracks: dict[str, int] = field(default_factory=dict)  # minimum counts by type
 
 
 @dataclass
@@ -226,6 +241,7 @@ class Spec:
     project: str
     color_preset: str | None = None
     settings: dict[str, str] = field(default_factory=dict)
+    bins: list[str] = field(default_factory=list)  # nested "A/B/C" paths
     timelines: list[TimelineSpec] = field(default_factory=list)
     hooks: list[Hook] = field(default_factory=list)
 
@@ -287,6 +303,7 @@ def parse_spec(data: dict[str, Any]) -> Spec:
                 markers=list(entry.get("markers", []) or []),
                 clip_properties=clip_properties,
                 titles=titles,
+                tracks=_parse_tracks(entry),
             )
         )
     color_preset = data.get("color_preset")
@@ -310,13 +327,41 @@ def parse_spec(data: dict[str, Any]) -> Spec:
                             name=str(entry.get("name", "")),
                         )
                     )
+    bins = data.get("bins", []) or []
+    if not isinstance(bins, list) or not all(isinstance(b, str) for b in bins):
+        raise errors.SpecError(
+            "Spec field 'bins' must be a list of bin path strings.",
+            fix="Use nested paths like `bins: [Footage/Day01, Audio]`.",
+            state={"bins": bins},
+        )
     return Spec(
         project=project,
         color_preset=color_preset,
         settings=dict(data.get("settings", {}) or {}),
+        bins=[str(b) for b in bins],
         timelines=timelines,
         hooks=hooks,
     )
+
+
+def _parse_tracks(entry: dict[str, Any]) -> dict[str, int]:
+    raw = entry.get("tracks", {}) or {}
+    if not isinstance(raw, dict):
+        raise errors.SpecError(
+            "Timeline tracks must be a mapping of track type to minimum count.",
+            fix="Use `tracks: {video: 3, audio: 4}`.",
+            state={"timeline": entry.get("name"), "tracks": raw},
+        )
+    tracks: dict[str, int] = {}
+    for track_type, count in raw.items():
+        if str(track_type) not in ("video", "audio", "subtitle"):
+            raise errors.SpecError(
+                f"Unknown track type {track_type!r} in timeline tracks.",
+                fix="Use video, audio, or subtitle.",
+                state={"timeline": entry.get("name"), "tracks": raw},
+            )
+        tracks[str(track_type)] = int(count)
+    return tracks
 
 
 def _parse_clip_property_specs(entry: dict[str, Any]) -> list[ClipOperationSpec]:
@@ -433,6 +478,17 @@ def plan(spec: Spec, resolve: Resolve) -> list[Action]:
             )
         )
 
+    # Bins (nested paths, idempotent).
+    for bin_path in spec.bins:
+        actions.append(
+            Action(
+                op="ensure",
+                target=f"bin:{bin_path}",
+                detail=f"in project {spec.project}",
+                payload={"path": bin_path},
+            )
+        )
+
     # Timelines
     for tl in spec.timelines:
         actions.append(
@@ -443,6 +499,15 @@ def plan(spec: Spec, resolve: Resolve) -> list[Action]:
                 payload={"name": tl.name},
             )
         )
+        for track_type, count in sorted(tl.tracks.items()):
+            actions.append(
+                Action(
+                    op="ensure",
+                    target=f"timeline:{tl.name}/tracks:{track_type}",
+                    detail=f">= {count}",
+                    payload={"timeline": tl.name, "track_type": track_type, "count": count},
+                )
+            )
         for key, value in tl.settings.items():
             actions.append(
                 Action(
@@ -573,8 +638,26 @@ def apply(
     dry_run: bool = False,
     run_hooks: bool = True,
     continue_on_error: bool = False,
+    transactional: bool = False,
+    verify: bool = False,
 ) -> list[Action]:
-    """Reconcile the live Resolve state to match ``spec``."""
+    """Reconcile the live Resolve state to match ``spec``.
+
+    Args:
+        dry_run:           Compute and return the plan without mutating.
+        run_hooks:         Run the spec's before/after shell hooks.
+        continue_on_error: Collect per-action failures instead of stopping
+                           at the first one (a summary error is still
+                           raised at the end).
+        transactional:     Capture a snapshot of the project before
+                           mutating; on failure, restore it and raise a
+                           ``SpecError`` describing the rollback. When the
+                           project doesn't exist yet there is nothing to
+                           roll back to, and the error says so.
+        verify:            Read every setting back after writing it and
+                           raise ``SettingsError`` when Resolve silently
+                           ignored the write.
+    """
     actions = plan(spec, resolve)
     if dry_run:
         return actions
@@ -582,6 +665,80 @@ def apply(
     if run_hooks:
         _run_hooks(spec.hooks, "before")
 
+    pre_snapshot = None
+    if transactional and spec.project in resolve.project.list():
+        from . import snapshot as snapshot_mod
+
+        resolve.project.ensure(spec.project)
+        pre_snapshot = snapshot_mod.capture(resolve, name=f"pre-apply-{spec.project}")
+        snapshot_mod.save(pre_snapshot)
+
+    try:
+        _apply_mutations(
+            spec,
+            resolve,
+            continue_on_error=continue_on_error,
+            verify=verify,
+        )
+    except errors.DvrError as exc:
+        if pre_snapshot is None:
+            raise
+        from . import snapshot as snapshot_mod
+
+        try:
+            snapshot_mod.restore(resolve, pre_snapshot)
+        except errors.DvrError as rollback_exc:
+            raise errors.SpecError(
+                "Apply failed AND the automatic rollback failed.",
+                cause=exc.message,
+                fix=(
+                    f"Restore manually with `dvr snapshot restore {pre_snapshot.name!r}` "
+                    "after fixing the rollback error."
+                ),
+                state={
+                    "snapshot": pre_snapshot.name,
+                    "apply_error": exc.to_dict(),
+                    "rollback_error": rollback_exc.to_dict(),
+                },
+            ) from exc
+        raise errors.SpecError(
+            f"Apply failed; project rolled back to snapshot {pre_snapshot.name!r}.",
+            cause=exc.message,
+            fix="Fix the failing action below and re-run the same spec.",
+            state={"snapshot": pre_snapshot.name, "apply_error": exc.to_dict()},
+        ) from exc
+
+    if run_hooks:
+        _run_hooks(spec.hooks, "after")
+
+    return actions
+
+
+def _verified_set_setting(target: Any, key: str, value: Any) -> None:
+    """``set_setting`` + read-back check. Fails loudly on silent rejection."""
+    target.set_setting(key, value)
+    try:
+        read_back = target.get_setting(key)
+    except errors.DvrError:
+        return  # can't read back — treat the successful write as final
+    if not _same_property_value(read_back, value):
+        raise errors.SettingsError(
+            f"Resolve accepted but did not persist setting {key!r}.",
+            cause=f"Wrote {value!r}, read back {read_back!r}.",
+            fix="The value may be invalid for this Resolve build. See `dvr schema settings`.",
+            state={"key": key, "wrote": value, "read_back": read_back},
+        )
+
+
+def _apply_mutations(
+    spec: Spec,
+    resolve: Resolve,
+    *,
+    continue_on_error: bool,
+    verify: bool,
+) -> None:
+    """Run every mutation in ``spec`` against ``resolve`` (extracted so
+    :func:`apply` can wrap the whole batch in snapshot/rollback)."""
     applied: list[Action] = []
     failures: list[dict[str, Any]] = []
 
@@ -616,6 +773,13 @@ def apply(
     # Project — get-or-create.
     project = resolve.project.ensure(spec.project)
 
+    # Setting writes: plain, or write + read-back verification.
+    set_setting: Callable[[Any, str, Any], None] = (
+        _verified_set_setting
+        if verify
+        else (lambda target, key, value: target.set_setting(key, value))
+    )
+
     # Project-level settings, ordered so HDR setup works.
     desired: dict[str, str] = {}
     if spec.color_preset:
@@ -632,7 +796,7 @@ def apply(
                     detail=f"= {value}",
                     payload={"key": key, "value": value},
                 ),
-                partial(project.set_setting, key, value),
+                partial(set_setting, project, key, value),
             )
     for key, value in desired.items():
         if key not in SETTINGS_ORDER:
@@ -643,12 +807,38 @@ def apply(
                     detail=f"= {value}",
                     payload={"key": key, "value": value},
                 ),
-                partial(project.set_setting, key, value),
+                partial(set_setting, project, key, value),
             )
+
+    # Bins (nested paths, idempotent).
+    for bin_path in spec.bins:
+
+        def ensure_bin(path: str = bin_path) -> None:
+            project.media.ensure_folder_path(path)
+
+        apply_or_record(
+            Action(op="ensure", target=f"bin:{bin_path}", payload={"path": bin_path}),
+            ensure_bin,
+        )
 
     # Timelines.
     for tl_spec in spec.timelines:
         tl = project.timeline.ensure(tl_spec.name)
+        for track_type, count in sorted(tl_spec.tracks.items()):
+
+            def ensure_tracks(timeline: Any = tl, tt: str = track_type, n: int = count) -> None:
+                while timeline.track_count(tt) < n:
+                    timeline.add_track(tt)
+
+            apply_or_record(
+                Action(
+                    op="ensure",
+                    target=f"timeline:{tl_spec.name}/tracks:{track_type}",
+                    detail=f">= {count}",
+                    payload={"timeline": tl_spec.name, "track_type": track_type, "count": count},
+                ),
+                ensure_tracks,
+            )
         for key, value in tl_spec.settings.items():
             apply_or_record(
                 Action(
@@ -657,7 +847,7 @@ def apply(
                     detail=f"= {value}",
                     payload={"key": key, "value": value, "timeline": tl_spec.name},
                 ),
-                partial(tl.set_setting, key, value),
+                partial(set_setting, tl, key, value),
             )
         if tl_spec.fps is not None:
             apply_or_record(
@@ -671,7 +861,7 @@ def apply(
                         "timeline": tl_spec.name,
                     },
                 ),
-                partial(tl.set_setting, "timelineFrameRate", str(tl_spec.fps)),
+                partial(set_setting, tl, "timelineFrameRate", str(tl_spec.fps)),
             )
         existing_markers = tl.markers()
         for marker in tl_spec.markers:
@@ -754,9 +944,6 @@ def apply(
 
             apply_or_record(title_action, apply_title)
 
-    if run_hooks:
-        _run_hooks(spec.hooks, "after")
-
     if failures:
         raise errors.SpecError(
             f"Spec applied with {len(failures)} failed action(s).",
@@ -765,10 +952,114 @@ def apply(
             state={"project": spec.project, "failures": failures},
         )
 
-    return actions
+
+# ---------------------------------------------------------------------------
+# Export (adopt an existing project into a spec — "terraform import")
+# ---------------------------------------------------------------------------
+
+# Project settings worth round-tripping through a spec / snapshot. The full
+# GetSetting() set returns >200 keys, most of which are UI prefs.
+CAPTURED_SETTINGS: tuple[str, ...] = (
+    "colorScienceMode",
+    "isAutoColorManage",
+    "separateColorSpaceAndGamma",
+    "colorSpaceInput",
+    "colorSpaceInputGamma",
+    "colorSpaceTimeline",
+    "colorSpaceTimelineGamma",
+    "colorSpaceOutput",
+    "colorSpaceOutputGamma",
+    "timelineWorkingLuminanceMode",
+    "hdrMasteringLuminanceMax",
+    "hdrMasteringOn",
+    "inputDRT",
+    "outputDRT",
+    "timelineFrameRate",
+    "timelineResolutionWidth",
+    "timelineResolutionHeight",
+    "videoMonitorFormat",
+)
+
+
+def from_live(resolve: Resolve, *, project: str | None = None) -> dict[str, Any]:
+    """Build a spec dict from live project state.
+
+    The inverse of :func:`apply` — adopt an existing project into a spec
+    file so future changes go through ``dvr plan`` / ``dvr apply``::
+
+        data = spec.from_live(r)
+        Path("show.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+
+    Captures the color/format settings subset (:data:`CAPTURED_SETTINGS`),
+    the bin tree, and each timeline's fps, track counts, and markers.
+    Grades, Fusion comps, and clip contents are not representable in a
+    spec and are omitted.
+    """
+    if project is not None:
+        proj = resolve.project.ensure(project)
+    else:
+        proj = resolve.project.require_current()
+
+    settings: dict[str, str] = {}
+    for key in CAPTURED_SETTINGS:
+        try:
+            value = proj.get_setting(key)
+        except Exception:  # boundary
+            continue
+        if value not in (None, ""):
+            settings[key] = str(value)
+
+    bins: list[str] = []
+    with contextlib.suppress(Exception):  # boundary: media pool unavailable
+        _collect_bin_paths(proj.media.root, "", bins)
+
+    timelines: list[dict[str, Any]] = []
+    for tl in proj.timeline.list():
+        entry: dict[str, Any] = {"name": tl.name}
+        with contextlib.suppress(Exception):  # boundary
+            entry["fps"] = tl.fps
+        tracks: dict[str, int] = {}
+        for track_type in ("video", "audio", "subtitle"):
+            try:
+                count = int(tl.track_count(track_type))
+            except Exception:  # boundary
+                continue
+            if count:
+                tracks[track_type] = count
+        if tracks:
+            entry["tracks"] = tracks
+        markers = []
+        for frame, info in sorted((tl.markers() or {}).items()):
+            markers.append(
+                {
+                    "frame": int(frame),
+                    "color": str(info.get("color", "Blue")),
+                    "name": str(info.get("name", "")),
+                }
+            )
+        if markers:
+            entry["markers"] = markers
+        timelines.append(entry)
+
+    out: dict[str, Any] = {"project": proj.name}
+    if settings:
+        out["settings"] = settings
+    if bins:
+        out["bins"] = bins
+    if timelines:
+        out["timelines"] = timelines
+    return out
+
+
+def _collect_bin_paths(folder: Any, prefix: str, out: list[str]) -> None:
+    for sub in folder.subfolders:
+        path = f"{prefix}/{sub.name}" if prefix else str(sub.name)
+        out.append(path)
+        _collect_bin_paths(sub, path, out)
 
 
 __all__ = [
+    "CAPTURED_SETTINGS",
     "COLOR_PRESETS",
     "Action",
     "ClipOperationSpec",
@@ -777,6 +1068,7 @@ __all__ = [
     "TimelineSpec",
     "TitleSpec",
     "apply",
+    "from_live",
     "load_spec",
     "parse_spec",
     "plan",

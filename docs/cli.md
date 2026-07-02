@@ -21,6 +21,7 @@ dvr timeline  list | current | inspect | ensure | create | switch | delete | add
 dvr media     inspect | bins | ls | scan | mkbin | import | relink | storage
 dvr clip      ls | inspect | set | transform | crop | composite | retime | reset | text | capabilities
 dvr render    queue | presets | formats | codecs | submit | status | watch | stop | clear
+dvr spec      export                                             (adopt live projects into specs)
 dvr serve     start | stop | status | methods                   (daemon mode)
 dvr mcp       serve                                              (MCP server for LLM agents)
 ```
@@ -35,6 +36,10 @@ dvr mcp       serve                                              (MCP server for
 | `--version`, `-V` | Print the `dvr` version and exit. |
 
 Set `DVR_FORMAT` in your environment to a permanent default.
+
+## Daemon forwarding
+
+When a `dvr serve` daemon is running, ordinary commands automatically route through it and reuse its persistent Resolve connection (~50ms instead of ~2.5s per command). `DVR_NO_DAEMON=1` forces local execution; `DVR_DAEMON=auto` auto-spawns the daemon on first use. See [Daemon mode](daemon.md).
 
 ## Output
 
