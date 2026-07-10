@@ -640,7 +640,9 @@ def clip_property_capabilities() -> dict[str, Any]:
         "fusion_comps": {
             "supported": True,
             "method": "TimelineItem.AddFusionComp/ImportFusionComp/ExportFusionComp",
-            "notes": ["Fusion animation can be imported as a comp, but DVR does not author node graphs yet."],
+            "notes": [
+                "Fusion animation can be imported as a comp, but DVR does not author node graphs yet."
+            ],
         },
         "transitions": {
             "supported": False,

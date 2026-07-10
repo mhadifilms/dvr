@@ -2048,7 +2048,9 @@ class Timeline:
         """Convert this timeline to stereoscopic 3D (``ConvertTimelineToStereo``)."""
         method = getattr(self._raw, "ConvertTimelineToStereo", None)
         if not callable(method):
-            raise errors.TimelineError("This Resolve build does not expose ConvertTimelineToStereo.")
+            raise errors.TimelineError(
+                "This Resolve build does not expose ConvertTimelineToStereo."
+            )
         return bool(method())
 
     def analyze_dolby_vision(

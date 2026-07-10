@@ -6,6 +6,7 @@ fall back to plain ``scriptapp("Resolve")`` on localhost. Otherwise a running,
 scriptable local Resolve that binds to 127.0.0.1 (External scripting = Local),
 or a machine with no LAN IP, is unreachable without remote discovery.
 """
+
 from __future__ import annotations
 
 import pytest

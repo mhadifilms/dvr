@@ -411,9 +411,7 @@ def connect(
     if running:
         raise errors.ScriptingDisabledError(
             "Could not reach DaVinci Resolve over its scripting socket.",
-            cause=(
-                "Resolve is running but did not respond to scriptapp() within the timeout."
-            ),
+            cause=("Resolve is running but did not respond to scriptapp() within the timeout."),
             fix=(
                 "In Resolve, open Preferences > General and set "
                 "'External scripting using' to 'Local'. Then quit and relaunch Resolve."

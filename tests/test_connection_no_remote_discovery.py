@@ -5,6 +5,7 @@ remote render nodes — so the old fallback could silently connect to a remote
 Resolve when the local one wasn't running. Now gated behind
 ``discover_remote=True`` (or ``DVR_DISCOVER_REMOTE=1``).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -52,9 +53,7 @@ def test_connect_discover_remote_true_calls_pinghosts(fake_dvr_script, monkeypat
     """Explicit opt-in: pinghosts is called as a fallback."""
     monkeypatch.delenv("DVR_DISCOVER_REMOTE", raising=False)
     with pytest.raises(errors.ConnectionError):
-        connection.connect(
-            auto_launch=False, timeout=0.5, call_timeout=0.1, discover_remote=True
-        )
+        connection.connect(auto_launch=False, timeout=0.5, call_timeout=0.1, discover_remote=True)
     assert fake_dvr_script.pinghosts_calls >= 1
 
 

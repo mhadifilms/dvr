@@ -5,6 +5,7 @@ the ABC check raises ``TypeError: issubclass() arg 1 must be a class``. The wrap
 has to treat single-handle inputs as scalars before falling through to the
 iterable-unpacking branch.
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
