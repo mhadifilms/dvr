@@ -126,6 +126,43 @@ PARITY: dict[str, dict[str, Any]] = {
         "reason": "ClipProjectItem.createSubClipAction (26.3+)",
     },
     "timeline.set_in_out": {"status": "both", "note": "pmr: sequence in/out actions"},
+    "app.preference": {"status": "pmr-only", "reason": "AppPreference key-value store"},
+    "project.scratch_disks": {"status": "pmr-only", "reason": "ScratchDiskSettings API"},
+    "project.ingest": {"status": "pmr-only", "reason": "IngestSettings API"},
+    "project.color_settings": {
+        "status": "both",
+        "note": "pmr: graphics white luminance only",
+    },
+    "project.import_sequences": {
+        "status": "pmr-only",
+        "reason": "cross-project sequence import",
+    },
+    "project.import_ae_comps": {
+        "status": "pmr-only",
+        "reason": "After Effects comp import",
+    },
+    "media.footage_interpretation": {
+        "status": "pmr-only",
+        "reason": "FootageInterpretation API",
+    },
+    "media.purge_cache": {
+        "status": "pmr-only",
+        "reason": "MediaManager.purgeMediaCache (26.5+)",
+    },
+    "timeline.track_update": {
+        "status": "both",
+        "note": "pmr: mute + rename (26.3+); no lock/add/remove",
+    },
+    "timeline.subsequence": {"status": "pmr-only", "reason": "Sequence.createSubsequence"},
+    "timeline.clone": {"status": "both", "note": "pmr: createCloneAction"},
+    "timeline.create_from_media": {
+        "status": "pmr-only",
+        "reason": "Project.createSequenceFromMedia",
+    },
+    "timeline.selection": {
+        "status": "pmr-only",
+        "reason": "TrackItemSelection APIs; setSelection crashes 26.5 beta — read/clear only",
+    },
     "render.submit": {"status": "both", "note": "pmr: .epr presets via EncoderManager"},
     "render.presets": {"status": "both", "note": "pmr discovers .epr files on disk"},
     "render.status": {"status": "both", "note": "pmr: event-driven, no job ids"},
