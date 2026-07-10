@@ -113,6 +113,20 @@ class TimelineItem:
     def enabled(self, value: bool) -> None:
         self._raw.SetClipEnabled(bool(value))
 
+    @property
+    def clip_color(self) -> str:
+        """Timeline-item color shown on the Edit page."""
+        return str(self._raw.GetClipColor() or "")
+
+    @clip_color.setter
+    def clip_color(self, value: str) -> None:
+        ok = self._raw.SetClipColor(value) if value else self._raw.ClearClipColor()
+        if not ok:
+            raise errors.ClipError(
+                f"Could not set timeline-item color on {self.name!r}.",
+                state={"item": self.name, "color": value},
+            )
+
     def get_property(self, key: str | None = None) -> Any:
         return self._raw.GetProperty(key) if key else self._raw.GetProperty()
 

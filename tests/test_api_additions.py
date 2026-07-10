@@ -326,6 +326,21 @@ def test_timeline_item_offsets_and_sidecar() -> None:
     assert item.unique_id == "ti-1"
 
 
+def test_timeline_item_clip_color_roundtrip() -> None:
+    raw = Rec(
+        GetName="c",
+        GetClipColor="Blue",
+        SetClipColor=True,
+        ClearClipColor=True,
+    )
+    item = TimelineItem(raw, track_type="video", track_index=1)
+    assert item.clip_color == "Blue"
+    item.clip_color = "Yellow"
+    item.clip_color = ""
+    assert ("SetClipColor", ("Yellow",), {}) in object.__getattribute__(raw, "calls")
+    assert "ClearClipColor" in raw.recorded()
+
+
 def test_timeline_item_stereo_params() -> None:
     raw = Rec(
         GetName="c",
