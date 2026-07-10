@@ -4,6 +4,20 @@ All notable changes to `dvr` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Cross-app parity contract with [pmr](https://github.com/mhadifilms/pmr)**
+  (the Adobe Premiere Pro sibling of `dvr`): `dvr.errors.NotSupportedError`
+  for operations Premiere supports but Resolve's scripting API cannot
+  perform; a machine-readable support matrix (`dvr.schema.PARITY`) exposed
+  as the `parity` schema topic (`dvr schema show parity`); `docs/parity.md`
+  documenting the shared routing/shape/loud-gap conventions; and
+  `scripts/check_parity.py`, which validates the matrix and — when the pmr
+  repo is checked out alongside — cross-checks that both repos agree on
+  every shared operation.
+
 ## [1.4.0] - 2026-07-01
 
 ### Added

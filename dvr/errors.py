@@ -77,6 +77,12 @@ class ScriptingDisabledError(DvrError):
     """External scripting is not enabled in Resolve's preferences."""
 
 
+class NotSupportedError(DvrError):
+    """The operation exists in the sibling app (pmr) but Resolve's scripting API
+    cannot perform it. Fails loudly instead of silently degrading — see the
+    parity manifest (`dvr schema show parity`) for the full support matrix."""
+
+
 class ProjectError(DvrError):
     """A project-level operation failed."""
 
@@ -143,6 +149,7 @@ __all__ = [
     "MediaError",
     "MediaImportError",
     "NotInstalledError",
+    "NotSupportedError",
     "ProjectError",
     "RenderError",
     "RenderJobError",

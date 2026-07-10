@@ -29,6 +29,137 @@ if TYPE_CHECKING:
     from .resolve import Resolve
 
 
+# ---------------------------------------------------------------------------
+# Parity matrix (the dvr ↔ pmr contract)
+# ---------------------------------------------------------------------------
+# status values:
+#   both       — implemented in dvr and pmr with the same routing
+#   dvr-only   — Resolve API supports it; pmr raises NotSupportedError
+#   pmr-only   — Premiere API supports it; dvr raises NotSupportedError
+# Keep in sync with the sibling repo's schema.py. CI checks this table
+# against the registered CLI commands and MCP tools.
+
+PARITY: dict[str, dict[str, Any]] = {
+    "ping": {"status": "both"},
+    "inspect": {"status": "both"},
+    "version": {"status": "both"},
+    "doctor": {"status": "both"},
+    "reconnect": {"status": "both"},
+    "page.get": {"status": "dvr-only", "reason": "Premiere has no scriptable workspaces"},
+    "page.set": {"status": "dvr-only", "reason": "Premiere has no scriptable workspaces"},
+    "project.list": {
+        "status": "both",
+        "note": "pmr lists open projects (file-based, no PM database)",
+    },
+    "project.current": {"status": "both"},
+    "project.ensure": {"status": "both"},
+    "project.create": {"status": "both"},
+    "project.load": {"status": "both"},
+    "project.save": {"status": "both"},
+    "project.delete": {"status": "both", "note": "pmr deletes the .prproj file when closed"},
+    "project.export": {
+        "status": "dvr-only",
+        "reason": "no .drp equivalent; Premiere projects are already files",
+    },
+    "project.import": {"status": "dvr-only", "reason": "no .drp equivalent; use project.load"},
+    "project.color_groups": {"status": "dvr-only", "reason": "no color-group API in UXP"},
+    "timeline.list": {"status": "both"},
+    "timeline.current": {"status": "both"},
+    "timeline.inspect": {"status": "both"},
+    "timeline.ensure": {"status": "both"},
+    "timeline.create": {"status": "both"},
+    "timeline.switch": {"status": "both"},
+    "timeline.delete": {"status": "both"},
+    "timeline.rename": {"status": "both"},
+    "timeline.append": {"status": "both"},
+    "timeline.insert": {"status": "both"},
+    "timeline.clear": {"status": "both"},
+    "timeline.add_title": {
+        "status": "dvr-only",
+        "reason": "no title/text-clip creation in UXP (use MOGRTs)",
+    },
+    "timeline.insert_mogrt": {
+        "status": "pmr-only",
+        "reason": "MOGRT insertion is a Premiere feature",
+    },
+    "timeline.subtitles": {"status": "dvr-only", "reason": "no caption-generation API in UXP"},
+    "timeline.scene_cut_detection": {
+        "status": "pmr-only",
+        "reason": "SequenceUtils scene edit detection",
+    },
+    "marker.add": {"status": "both"},
+    "marker.list": {"status": "both"},
+    "marker.remove": {"status": "both"},
+    "clip.where": {"status": "both"},
+    "clip.rename": {"status": "both"},
+    "clip.enable": {"status": "both"},
+    "clip.move": {"status": "both"},
+    "clip.set_properties": {
+        "status": "dvr-only",
+        "reason": "no generic clip-property dict; use effects.set_param",
+    },
+    "clip.transform": {
+        "status": "both",
+        "note": "pmr: effects.set_param on the Motion/Opacity components",
+    },
+    "effects.set_param": {"status": "pmr-only", "reason": "component params incl. keyframes"},
+    "effects.list": {"status": "pmr-only", "reason": "effect factories are a Premiere UXP feature"},
+    "effects.apply": {"status": "pmr-only"},
+    "effects.components": {"status": "pmr-only"},
+    "transition.add": {"status": "pmr-only", "reason": "dvr has no transition API"},
+    "media.inspect": {"status": "both"},
+    "media.bins": {"status": "both"},
+    "media.ls": {"status": "both"},
+    "media.import": {"status": "both"},
+    "media.scan": {"status": "both"},
+    "media.bin_ensure": {"status": "both"},
+    "media.bin_delete": {"status": "both"},
+    "media.move": {"status": "both"},
+    "media.relink": {
+        "status": "dvr-only",
+        "reason": "per-clip changeMediaFilePath only; no batch relink",
+    },
+    "media.proxy": {"status": "both", "note": "pmr: attachProxy per clip"},
+    "media.transcribe": {"status": "both", "note": "pmr: Transcript API (26.3+)"},
+    "media.subclip": {
+        "status": "pmr-only",
+        "reason": "ClipProjectItem.createSubClipAction (26.3+)",
+    },
+    "timeline.set_in_out": {"status": "both", "note": "pmr: sequence in/out actions"},
+    "render.submit": {"status": "both", "note": "pmr: .epr presets via EncoderManager"},
+    "render.presets": {"status": "both", "note": "pmr discovers .epr files on disk"},
+    "render.status": {"status": "both", "note": "pmr: event-driven, no job ids"},
+    "render.watch": {"status": "both"},
+    "render.queue": {"status": "dvr-only", "reason": "no enumerable render queue in UXP"},
+    "render.formats": {"status": "dvr-only", "reason": "presets replace format/codec enums"},
+    "render.codecs": {"status": "dvr-only", "reason": "presets replace format/codec enums"},
+    "render.stop": {"status": "dvr-only", "reason": "no cancel API in UXP"},
+    "render.clear": {"status": "dvr-only", "reason": "no queue to clear"},
+    "render.export_frame": {"status": "both", "note": "pmr: Exporter.exportSequenceFrame"},
+    "interchange.export": {"status": "both", "note": "pmr: fcpxml/otio/aaf (26.3+)"},
+    "interchange.import": {"status": "dvr-only", "reason": "removed from UXP in 26.3"},
+    "metadata.get": {"status": "pmr-only", "reason": "XMP metadata API"},
+    "metadata.set": {"status": "pmr-only"},
+    "source_monitor": {
+        "status": "pmr-only",
+        "reason": "source monitor control is Premiere-specific",
+    },
+    "properties.get": {"status": "pmr-only", "reason": "per-project key-value store"},
+    "properties.set": {"status": "pmr-only"},
+    "color.grade": {"status": "dvr-only", "reason": "no color-page equivalent in UXP"},
+    "fusion": {"status": "dvr-only", "reason": "no Fusion equivalent in Premiere"},
+    "gallery.stills": {"status": "dvr-only", "reason": "no gallery in Premiere"},
+    "spec.apply": {"status": "both"},
+    "spec.export": {"status": "both"},
+    "diff.timelines": {"status": "both"},
+    "diff.spec": {"status": "both"},
+    "snapshot.save": {"status": "both"},
+    "snapshot.restore": {"status": "both"},
+    "lint": {"status": "both"},
+    "eval": {"status": "both", "note": "dvr: Python; pmr: JavaScript inside Premiere"},
+}
+
+
 # Static — known clip properties exposed by TimelineItem.GetProperty/SetProperty.
 # Source: DaVinci Resolve scripting docs, "Timeline item properties".
 COMPOSITE_MODES: dict[str, int] = {
@@ -569,6 +700,8 @@ def render_presets(resolve: Resolve) -> list[str]:
 
 def get_topic(topic: str, resolve: Resolve | None = None) -> Any:
     """Return the catalog for ``topic``. Some topics need a live ``resolve``."""
+    if topic == "parity":
+        return {"operations": PARITY, "statuses": ["both", "dvr-only", "pmr-only"]}
     if topic == "clip-properties":
         return CLIP_PROPERTIES
     if topic == "clip-property-aliases":
@@ -597,13 +730,14 @@ def get_topic(topic: str, resolve: Resolve | None = None) -> Any:
         return render_presets(resolve)
     raise ValueError(
         f"Unknown schema topic {topic!r}. "
-        "Available: clip-properties, clip-property-aliases, clip-property-defaults, "
+        "Available: parity, clip-properties, clip-property-aliases, clip-property-defaults, "
         "clip-capabilities, settings, export-formats, color-presets, render-formats, "
         "render-codecs, render-presets."
     )
 
 
 TOPICS: tuple[str, ...] = (
+    "parity",
     "clip-properties",
     "clip-property-aliases",
     "clip-property-defaults",
@@ -625,6 +759,7 @@ __all__ = [
     "COMPOSITE_MODES",
     "DYNAMIC_ZOOM_EASE",
     "MOTION_ESTIMATION",
+    "PARITY",
     "PROJECT_SETTINGS",
     "RESIZE_FILTERS",
     "RETIME_PROCESS",
