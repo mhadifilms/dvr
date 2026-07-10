@@ -161,6 +161,11 @@ PARITY: dict[str, dict[str, Any]] = {
     },
     "timeline.subsequence": {"status": "pmr-only", "reason": "Sequence.createSubsequence"},
     "timeline.clone": {"status": "both", "note": "pmr: createCloneAction"},
+    "timeline.set_settings": {"status": "both", "note": "pmr: SequenceSettings write subset"},
+    "timeline.insert_mogrt_from_library": {
+        "status": "pmr-only",
+        "reason": "insertMogrtFromLibrary",
+    },
     "timeline.create_from_media": {
         "status": "pmr-only",
         "reason": "Project.createSequenceFromMedia",
