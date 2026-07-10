@@ -87,7 +87,7 @@ nav:
   - Daemon mode: daemon.md
   - MCP server: mcp.md
   - Declarative specs: spec.md
-  - dvr ↔ pmr parity: parity.md
+  - dvr ↔ prpr parity: parity.md
   - API reference:
       - dvr: api/index.md
 

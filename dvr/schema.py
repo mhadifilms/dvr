@@ -30,12 +30,12 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Parity matrix (the dvr ↔ pmr contract)
+# Parity matrix (the dvr ↔ prpr contract)
 # ---------------------------------------------------------------------------
 # status values:
-#   both       — implemented in dvr and pmr with the same routing
-#   dvr-only   — Resolve API supports it; pmr raises NotSupportedError
-#   pmr-only   — Premiere API supports it; dvr raises NotSupportedError
+#   both       — implemented in dvr and prpr with the same routing
+#   dvr-only   — Resolve API supports it; prpr raises NotSupportedError
+#   prpr-only   — Premiere API supports it; dvr raises NotSupportedError
 # Keep in sync with the sibling repo's schema.py. CI checks this table
 # against the registered CLI commands and MCP tools.
 
@@ -49,14 +49,14 @@ PARITY: dict[str, dict[str, Any]] = {
     "page.set": {"status": "dvr-only", "reason": "Premiere has no scriptable workspaces"},
     "project.list": {
         "status": "both",
-        "note": "pmr lists open projects (file-based, no PM database)",
+        "note": "prpr lists open projects (file-based, no PM database)",
     },
     "project.current": {"status": "both"},
     "project.ensure": {"status": "both"},
     "project.create": {"status": "both"},
     "project.load": {"status": "both"},
     "project.save": {"status": "both"},
-    "project.delete": {"status": "both", "note": "pmr deletes the .prproj file when closed"},
+    "project.delete": {"status": "both", "note": "prpr deletes the .prproj file when closed"},
     "project.export": {
         "status": "dvr-only",
         "reason": "no .drp equivalent; Premiere projects are already files",
@@ -79,26 +79,26 @@ PARITY: dict[str, dict[str, Any]] = {
         "reason": "no title/text-clip creation in UXP (use MOGRTs)",
     },
     "timeline.insert_mogrt": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "MOGRT insertion is a Premiere feature",
     },
     "timeline.subtitles": {"status": "dvr-only", "reason": "no caption-generation API in UXP"},
     "timeline.scene_cut_detection": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "SequenceUtils scene edit detection",
     },
     "marker.add": {"status": "both"},
     "marker.list": {"status": "both"},
     "marker.remove": {"status": "both"},
-    "marker.move": {"status": "both", "note": "pmr: createMoveMarkerAction"},
+    "marker.move": {"status": "both", "note": "prpr: createMoveMarkerAction"},
     "timeline.work_area": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "WorkAreaUtils; feature-detected (absent on some 26.5 builds, fails with a clear version error)",
     },
-    "timeline.keyframes": {"status": "pmr-only", "reason": "ComponentParam keyframe list"},
-    "media.color_label": {"status": "both", "note": "pmr: ProjectItem color label (0-14)"},
-    "media.bin_rename": {"status": "both", "note": "pmr: createRenameBinAction"},
-    "media.smart_bin": {"status": "pmr-only", "reason": "createSmartBinAction"},
+    "timeline.keyframes": {"status": "prpr-only", "reason": "ComponentParam keyframe list"},
+    "media.color_label": {"status": "both", "note": "prpr: ProjectItem color label (0-14)"},
+    "media.bin_rename": {"status": "both", "note": "prpr: createRenameBinAction"},
+    "media.smart_bin": {"status": "prpr-only", "reason": "createSmartBinAction"},
     "clip.where": {"status": "both"},
     "clip.rename": {"status": "both"},
     "clip.enable": {"status": "both"},
@@ -109,13 +109,13 @@ PARITY: dict[str, dict[str, Any]] = {
     },
     "clip.transform": {
         "status": "both",
-        "note": "pmr: effects.set_param on the Motion/Opacity components",
+        "note": "prpr: effects.set_param on the Motion/Opacity components",
     },
-    "effects.set_param": {"status": "pmr-only", "reason": "component params incl. keyframes"},
-    "effects.list": {"status": "pmr-only", "reason": "effect factories are a Premiere UXP feature"},
-    "effects.apply": {"status": "pmr-only"},
-    "effects.components": {"status": "pmr-only"},
-    "transition.add": {"status": "pmr-only", "reason": "dvr has no transition API"},
+    "effects.set_param": {"status": "prpr-only", "reason": "component params incl. keyframes"},
+    "effects.list": {"status": "prpr-only", "reason": "effect factories are a Premiere UXP feature"},
+    "effects.apply": {"status": "prpr-only"},
+    "effects.components": {"status": "prpr-only"},
+    "transition.add": {"status": "prpr-only", "reason": "dvr has no transition API"},
     "media.inspect": {"status": "both"},
     "media.bins": {"status": "both"},
     "media.ls": {"status": "both"},
@@ -128,75 +128,75 @@ PARITY: dict[str, dict[str, Any]] = {
         "status": "dvr-only",
         "reason": "per-clip changeMediaFilePath only; no batch relink",
     },
-    "media.proxy": {"status": "both", "note": "pmr: attachProxy per clip"},
-    "media.transcribe": {"status": "both", "note": "pmr: Transcript API (26.3+)"},
+    "media.proxy": {"status": "both", "note": "prpr: attachProxy per clip"},
+    "media.transcribe": {"status": "both", "note": "prpr: Transcript API (26.3+)"},
     "media.subclip": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "ClipProjectItem.createSubClipAction (26.3+)",
     },
-    "timeline.set_in_out": {"status": "both", "note": "pmr: sequence in/out actions"},
-    "app.preference": {"status": "pmr-only", "reason": "AppPreference key-value store"},
-    "project.scratch_disks": {"status": "pmr-only", "reason": "ScratchDiskSettings API"},
-    "project.ingest": {"status": "pmr-only", "reason": "IngestSettings API"},
+    "timeline.set_in_out": {"status": "both", "note": "prpr: sequence in/out actions"},
+    "app.preference": {"status": "prpr-only", "reason": "AppPreference key-value store"},
+    "project.scratch_disks": {"status": "prpr-only", "reason": "ScratchDiskSettings API"},
+    "project.ingest": {"status": "prpr-only", "reason": "IngestSettings API"},
     "project.color_settings": {
         "status": "both",
-        "note": "pmr: graphics white luminance only",
+        "note": "prpr: graphics white luminance only",
     },
     "project.import_sequences": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "cross-project sequence import",
     },
     "project.import_ae_comps": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "After Effects comp import",
     },
     "media.footage_interpretation": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "FootageInterpretation API",
     },
     "media.purge_cache": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "MediaManager.purgeMediaCache (26.5+)",
     },
     "timeline.track_update": {
         "status": "both",
-        "note": "pmr: mute + rename (26.3+); no lock/add/remove",
+        "note": "prpr: mute + rename (26.3+); no lock/add/remove",
     },
-    "timeline.subsequence": {"status": "pmr-only", "reason": "Sequence.createSubsequence"},
-    "timeline.clone": {"status": "both", "note": "pmr: createCloneAction"},
-    "timeline.set_settings": {"status": "both", "note": "pmr: SequenceSettings write subset"},
+    "timeline.subsequence": {"status": "prpr-only", "reason": "Sequence.createSubsequence"},
+    "timeline.clone": {"status": "both", "note": "prpr: createCloneAction"},
+    "timeline.set_settings": {"status": "both", "note": "prpr: SequenceSettings write subset"},
     "timeline.insert_mogrt_from_library": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "insertMogrtFromLibrary",
     },
     "timeline.create_from_media": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "Project.createSequenceFromMedia",
     },
     "timeline.selection": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "TrackItemSelection APIs; setSelection crashes 26.5 beta — read/clear only",
     },
-    "render.submit": {"status": "both", "note": "pmr: .epr presets via EncoderManager"},
-    "render.presets": {"status": "both", "note": "pmr discovers .epr files on disk"},
-    "render.status": {"status": "both", "note": "pmr: event-driven, no job ids"},
+    "render.submit": {"status": "both", "note": "prpr: .epr presets via EncoderManager"},
+    "render.presets": {"status": "both", "note": "prpr discovers .epr files on disk"},
+    "render.status": {"status": "both", "note": "prpr: event-driven, no job ids"},
     "render.watch": {"status": "both"},
     "render.queue": {"status": "dvr-only", "reason": "no enumerable render queue in UXP"},
     "render.formats": {"status": "dvr-only", "reason": "presets replace format/codec enums"},
     "render.codecs": {"status": "dvr-only", "reason": "presets replace format/codec enums"},
     "render.stop": {"status": "dvr-only", "reason": "no cancel API in UXP"},
     "render.clear": {"status": "dvr-only", "reason": "no queue to clear"},
-    "render.export_frame": {"status": "both", "note": "pmr: Exporter.exportSequenceFrame"},
-    "interchange.export": {"status": "both", "note": "pmr: fcpxml/otio/aaf (26.3+)"},
+    "render.export_frame": {"status": "both", "note": "prpr: Exporter.exportSequenceFrame"},
+    "interchange.export": {"status": "both", "note": "prpr: fcpxml/otio/aaf (26.3+)"},
     "interchange.import": {"status": "dvr-only", "reason": "removed from UXP in 26.3"},
-    "metadata.get": {"status": "pmr-only", "reason": "XMP metadata API"},
-    "metadata.set": {"status": "pmr-only"},
+    "metadata.get": {"status": "prpr-only", "reason": "XMP metadata API"},
+    "metadata.set": {"status": "prpr-only"},
     "source_monitor": {
-        "status": "pmr-only",
+        "status": "prpr-only",
         "reason": "source monitor control is Premiere-specific",
     },
-    "properties.get": {"status": "pmr-only", "reason": "per-project key-value store"},
-    "properties.set": {"status": "pmr-only"},
+    "properties.get": {"status": "prpr-only", "reason": "per-project key-value store"},
+    "properties.set": {"status": "prpr-only"},
     "color.grade": {"status": "dvr-only", "reason": "no color-page equivalent in UXP"},
     "fusion": {"status": "dvr-only", "reason": "no Fusion equivalent in Premiere"},
     "gallery.stills": {"status": "dvr-only", "reason": "no gallery in Premiere"},
@@ -207,8 +207,8 @@ PARITY: dict[str, dict[str, Any]] = {
     "snapshot.save": {"status": "both"},
     "snapshot.restore": {"status": "both"},
     "lint": {"status": "both"},
-    "eval": {"status": "both", "note": "dvr: Python; pmr: JavaScript inside Premiere"},
-    "events.subscribe": {"status": "pmr-only", "reason": "EventManager host-event push"},
+    "eval": {"status": "both", "note": "dvr: Python; prpr: JavaScript inside Premiere"},
+    "events.subscribe": {"status": "prpr-only", "reason": "EventManager host-event push"},
 }
 
 
@@ -755,7 +755,7 @@ def render_presets(resolve: Resolve) -> list[str]:
 def get_topic(topic: str, resolve: Resolve | None = None) -> Any:
     """Return the catalog for ``topic``. Some topics need a live ``resolve``."""
     if topic == "parity":
-        return {"operations": PARITY, "statuses": ["both", "dvr-only", "pmr-only"]}
+        return {"operations": PARITY, "statuses": ["both", "dvr-only", "prpr-only"]}
     if topic == "clip-properties":
         return CLIP_PROPERTIES
     if topic == "clip-property-aliases":

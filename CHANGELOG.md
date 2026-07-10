@@ -8,13 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Cross-app parity contract with [pmr](https://github.com/mhadifilms/pmr)**
+- **Cross-app parity contract with [prpr](https://github.com/mhadifilms/prpr)**
   (the Adobe Premiere Pro sibling of `dvr`): `dvr.errors.NotSupportedError`
   for operations Premiere supports but Resolve's scripting API cannot
   perform; a machine-readable support matrix (`dvr.schema.PARITY`) exposed
   as the `parity` schema topic (`dvr schema show parity`); `docs/parity.md`
   documenting the shared routing/shape/loud-gap conventions; and
-  `scripts/check_parity.py`, which validates the matrix and — when the pmr
+  `scripts/check_parity.py`, which validates the matrix and — when the prpr
   repo is checked out alongside — cross-checks that both repos agree on
   every shared operation.
 

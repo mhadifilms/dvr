@@ -1,10 +1,10 @@
-"""Tests for the dvr↔pmr parity contract (no Resolve required)."""
+"""Tests for the dvr↔prpr parity contract (no Resolve required)."""
 
 from __future__ import annotations
 
 from dvr import errors, schema
 
-VALID_STATUSES = {"both", "dvr-only", "pmr-only"}
+VALID_STATUSES = {"both", "dvr-only", "prpr-only"}
 
 
 def test_not_supported_error_exists_and_inherits_dvr_error() -> None:
@@ -16,7 +16,7 @@ def test_not_supported_error_serializes() -> None:
     err = errors.NotSupportedError(
         "effects.apply is not supported in Resolve",
         cause="Resolve's scripting API has no effect factory",
-        fix="use pmr, or apply the effect manually in the Edit page",
+        fix="use prpr, or apply the effect manually in the Edit page",
         state={"operation": "effects.apply"},
     )
     payload = err.to_dict()
@@ -30,9 +30,9 @@ def test_parity_topic_resolves_statically() -> None:
     catalog = schema.get_topic("parity")
     operations = catalog["operations"]
     assert operations is schema.PARITY
-    assert catalog["statuses"] == ["both", "dvr-only", "pmr-only"]
+    assert catalog["statuses"] == ["both", "dvr-only", "prpr-only"]
     assert operations["render.queue"]["status"] == "dvr-only"
-    assert operations["effects.apply"]["status"] == "pmr-only"
+    assert operations["effects.apply"]["status"] == "prpr-only"
     assert operations["timeline.inspect"]["status"] == "both"
 
 

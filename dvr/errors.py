@@ -78,7 +78,7 @@ class ScriptingDisabledError(DvrError):
 
 
 class NotSupportedError(DvrError):
-    """The operation exists in the sibling app (pmr) but Resolve's scripting API
+    """The operation exists in the sibling app (prpr) but Resolve's scripting API
     cannot perform it. Fails loudly instead of silently degrading — see the
     parity manifest (`dvr schema show parity`) for the full support matrix."""
 
