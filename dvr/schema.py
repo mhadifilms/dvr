@@ -205,6 +205,7 @@ PARITY: dict[str, dict[str, Any]] = {
     "snapshot.restore": {"status": "both"},
     "lint": {"status": "both"},
     "eval": {"status": "both", "note": "dvr: Python; pmr: JavaScript inside Premiere"},
+    "events.subscribe": {"status": "pmr-only", "reason": "EventManager host-event push"},
 }
 
 
