@@ -555,6 +555,9 @@ class ProjectNamespace:
 
     def ensure(self, name: str) -> Project:
         """Load the project if it exists, otherwise create it."""
+        current = self._manager.GetCurrentProject()
+        if current is not None and current.GetName() == name:
+            return Project(current, self._manager)
         if name in self.list():
             return self.load(name)
         return self.create(name)

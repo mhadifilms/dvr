@@ -40,6 +40,18 @@ def test_project_namespace_ensure_returns_existing(mock_resolve) -> None:
     assert project.name == "MockProject"
 
 
+def test_project_namespace_ensure_returns_current_outside_folder_listing(mock_resolve) -> None:
+    mock_resolve.project_manager.responses["GetProjectListInCurrentFolder"] = []
+
+    def unexpected_create(_name):
+        raise AssertionError("ensure must not create a duplicate of the active project")
+
+    mock_resolve.project_manager.responses["CreateProject"] = unexpected_create
+    ns = ProjectNamespace(mock_resolve, mock_resolve.project_manager)
+
+    assert ns.ensure("MockProject").name == "MockProject"
+
+
 def test_project_set_setting_failure_decodes_error(mock_resolve) -> None:
     mock_resolve.project.responses["SetSetting"] = lambda *args, **kwargs: False
     project = Project(mock_resolve.project, mock_resolve.project_manager)
