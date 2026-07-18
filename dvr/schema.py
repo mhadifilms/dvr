@@ -112,7 +112,10 @@ PARITY: dict[str, dict[str, Any]] = {
         "note": "prpr: effects.set_param on the Motion/Opacity components",
     },
     "effects.set_param": {"status": "prpr-only", "reason": "component params incl. keyframes"},
-    "effects.list": {"status": "prpr-only", "reason": "effect factories are a Premiere UXP feature"},
+    "effects.list": {
+        "status": "prpr-only",
+        "reason": "effect factories are a Premiere UXP feature",
+    },
     "effects.apply": {"status": "prpr-only"},
     "effects.components": {"status": "prpr-only"},
     "transition.add": {"status": "prpr-only", "reason": "dvr has no transition API"},
