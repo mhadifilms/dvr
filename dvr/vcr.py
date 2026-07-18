@@ -106,8 +106,9 @@ class RecordingProxy:
             return attr
 
         def call(*args: Any, **kwargs: Any) -> Any:
-            real_args = [a._vcr_target if isinstance(a, RecordingProxy) else a for a in args]
-            result = attr(*real_args, **kwargs)
+            real_args = _unwrap_recording(args)
+            real_kwargs = _unwrap_recording(kwargs)
+            result = attr(*real_args, **real_kwargs)
             recording.write(
                 {
                     "handle": object.__getattribute__(self, "_vcr_handle_id"),
@@ -120,6 +121,19 @@ class RecordingProxy:
             return _proxy_result(result, recording)
 
         return call
+
+
+def _unwrap_recording(value: Any) -> Any:
+    """Replace proxies at any argument depth before calling Resolve."""
+    if isinstance(value, RecordingProxy):
+        return object.__getattribute__(value, "_vcr_target")
+    if isinstance(value, tuple):
+        return tuple(_unwrap_recording(item) for item in value)
+    if isinstance(value, list):
+        return [_unwrap_recording(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _unwrap_recording(item) for key, item in value.items()}
+    return value
 
 
 def _proxy_result(value: Any, recording: _Recording) -> Any:

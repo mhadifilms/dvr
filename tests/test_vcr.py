@@ -34,6 +34,32 @@ def test_record_then_replay_serves_identical_responses(tmp_path: Path) -> None:
     assert timeline.GetName() == "MockTimeline"
 
 
+def test_recording_unwraps_nested_handle_arguments(tmp_path: Path) -> None:
+    class Target:
+        def __init__(self) -> None:
+            self.received = None
+
+        def Child(self):
+            return object()
+
+        def Submit(self, payload, *, options):
+            self.received = (payload, options)
+            return True
+
+    cassette = tmp_path / "nested.jsonl"
+    target = Target()
+    rec = vcr.wrap_recording(target, cassette)
+    child = rec.Child()
+
+    assert rec.Submit(
+        [{"mediaPoolItem": child}],
+        options={"linked": (child,)},
+    )
+    payload, options = target.received
+    assert payload[0]["mediaPoolItem"] is child._vcr_target
+    assert options["linked"][0] is child._vcr_target
+
+
 def test_replay_diverges_loudly(tmp_path: Path) -> None:
     cassette = tmp_path / "session.jsonl"
     _record_session(cassette)

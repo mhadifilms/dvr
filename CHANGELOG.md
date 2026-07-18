@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- VCR recording now unwraps Resolve handles nested inside lists, tuples,
+  dictionaries, and keyword arguments before forwarding API calls.
+
 ### Added
 
 - **Cross-app parity contract with [prpr](https://github.com/mhadifilms/prpr)**

@@ -63,6 +63,7 @@ Thumbs.db
 *.log
 .env
 .env.local
+.worktrees/
 scratch/
 local/
 
