@@ -136,7 +136,7 @@ def test_dispatch_unknown_tool_returns_structured_error() -> None:
     registry = {s.name: s for s in _build_registry()}
     result = _d(registry, cache, "no_such_tool", {})
     payload = json.loads(result.content[0].text)
-    assert result.isError is True
+    assert result.is_error is True
     assert "error" in payload
     assert payload["error"]["type"] == "DvrError"
     assert "Unknown tool" in payload["error"]["message"]
@@ -372,6 +372,26 @@ def test_mcp_stdio_initialize_and_list_tools() -> None:
         doc_payload = json.loads(doctor_response["result"]["content"][0]["text"])
         assert "scripting_lib_present" in doc_payload
         assert "platform" in doc_payload
+
+        proc.stdin.write(_send_jsonrpc("resources/list", {}, msg_id=5))
+        proc.stdin.flush()
+        resources_response = json.loads(_readline_with_timeout(proc.stdout, 5.0))
+        resource_uris = {item["uri"] for item in resources_response["result"]["resources"]}
+        assert "dvr://doctor" in resource_uris
+        assert "dvr://schema/settings" in resource_uris
+
+        proc.stdin.write(
+            _send_jsonrpc(
+                "resources/read",
+                {"uri": "dvr://schema/settings"},
+                msg_id=6,
+            )
+        )
+        proc.stdin.flush()
+        resource_response = json.loads(_readline_with_timeout(proc.stdout, 5.0))
+        resource_content = resource_response["result"]["contents"][0]
+        assert resource_content["mimeType"] == "application/json"
+        assert "colorScienceMode" in json.loads(resource_content["text"])
     finally:
         if proc.stdin is not None:
             proc.stdin.close()

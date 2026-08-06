@@ -4,6 +4,16 @@ All notable changes to `dvr` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Migrate the MCP server to the MCP Python SDK 2.x low-level callback API.
+  Tool and resource discovery now return the required result envelopes,
+  resource reads return typed contents, and result checks use the SDK's
+  snake-case Python attributes. Fresh installs therefore work with MCP 2.x
+  instead of failing during server registration.
+
 ## [1.6.0] - 2026-08-05
 
 ### Fixed
