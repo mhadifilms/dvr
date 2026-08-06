@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Constrain the MCP dependency to the supported 1.x API. MCP 2.0 renamed
+  protocol-model fields and server registration methods, which otherwise
+  breaks fresh `dvr` installs at type-check and runtime.
 - VCR recording now unwraps Resolve handles nested inside lists, tuples,
   dictionaries, and keyword arguments before forwarding API calls.
 
