@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to publish"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -17,6 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # required for hatch-vcs
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -35,6 +42,7 @@ jobs:
         with:
           generate_release_notes: true
           files: dist/*
+          tag_name: ${{ inputs.tag || github.ref_name }}
 
       - name: Notify homebrew-tap to bump formula
         if: success()
@@ -47,7 +55,8 @@ jobs:
             echo "and add it as a repository secret named HOMEBREW_TAP_TOKEN."
             exit 0
           fi
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
           gh api repos/mhadifilms/homebrew-tap/dispatches \
             -f event_type=dvr-release \
             -f client_payload[version]="$VERSION"
