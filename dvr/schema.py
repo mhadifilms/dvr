@@ -697,6 +697,14 @@ PROJECT_SETTINGS: dict[str, dict[str, Any]] = {
         "type": "string-fps",
         "common": ["23.976", "24", "25", "29.97", "30", "48", "50", "59.94", "60"],
     },
+    "timelineSampleRate": {
+        "type": "int-or-string",
+        "common": ["48000", "96000", "192000"],
+        "notes": [
+            "Resolve 21 exposes the Fairlight project audio sample-rate setting.",
+            "Accepted values are the rates available in Project Settings → Fairlight.",
+        ],
+    },
     "timelineResolutionWidth": {"type": "int"},
     "timelineResolutionHeight": {"type": "int"},
     "hdrMasteringOn": {"type": "bool-string", "values": ["0", "1"]},

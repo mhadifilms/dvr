@@ -19,7 +19,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` method shadow
+from typing import (  # noqa: UP035 — `List` avoids `list` method shadow
+    TYPE_CHECKING,
+    Any,
+    List,
+    TypedDict,
+)
 
 from . import errors
 from ._wrap import requires_method
@@ -30,6 +35,21 @@ if TYPE_CHECKING:
     from .timeline import TimelineNamespace
 
 logger = logging.getLogger("dvr.project")
+
+
+class SpeechGenerationSettings(TypedDict, total=False):
+    """Resolve 21.0.4 ``Project.GenerateSpeech`` setting payload."""
+
+    TextInput: str
+    VoiceModel: str
+    CustomVoiceFile: str
+    Speed: int | float
+    Variation: int
+    Pitch: int | float
+    GenerationID: int
+    Filename: str
+    AddToTimeline: bool
+    AudioTrack: int
 
 
 class Project:
@@ -214,14 +234,15 @@ class Project:
                 state={"project": self.name},
             )
 
-    def generate_speech(self, settings: dict[str, Any], timecode: str) -> Any:
+    def generate_speech(self, settings: SpeechGenerationSettings, timecode: str) -> Any:
         """Generate a text-to-speech audio clip and return it (Resolve 21+, Studio).
 
         ``settings`` maps to Resolve's ``speechGenerationSettings`` dict
         (see the "Speech Generation Settings" docs section: ``TextInput``,
-        ``VoiceModel``, ``Speed``, ``Pitch``, ``Filename``,
-        ``AddToTimeline``, ``AudioTrack`` ...). When ``AddToTimeline`` is
-        True the clip is placed at ``timecode``. Returns the generated
+        ``VoiceModel``, ``CustomVoiceFile``, ``Speed``, ``Variation``,
+        ``Pitch``, ``GenerationID``, ``Filename``, ``AddToTimeline``, and
+        ``AudioTrack``). When ``AddToTimeline`` is True the clip is placed
+        at ``timecode``. Returns the generated
         :class:`dvr.media.Clip` (Resolve's ``MediaPoolItem``).
         """
         from .media import Clip
@@ -488,6 +509,22 @@ class ProjectNamespace:
     def list(self) -> List[str]:  # noqa: UP006
         """Return project names in the current PM folder."""
         return [str(n) for n in (self._manager.GetProjectListInCurrentFolder() or [])]
+
+    def attributes(self) -> dict[str, dict[str, Any]]:
+        """Return Resolve 21 project attributes keyed by project name.
+
+        Attributes documented by Resolve 21.0.4 include
+        ``lastModifiedDate``, ``creationDate``, ``notes``, and
+        ``liveCollaborationMode``.
+        """
+        method = getattr(self._manager, "GetProjectAttributesInCurrentFolder", None)
+        if not callable(method):
+            raise errors.ProjectError(
+                "This Resolve build does not expose project attributes.",
+                cause="ProjectManager.GetProjectAttributesInCurrentFolder is unavailable.",
+                fix="Requires DaVinci Resolve 21 or newer.",
+            )
+        return {str(name): dict(attrs) for name, attrs in (method() or {}).items()}
 
     def folders(self) -> List[str]:  # noqa: UP006
         """Return PM subfolder names in the current folder."""

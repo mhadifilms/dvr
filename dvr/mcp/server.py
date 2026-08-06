@@ -37,7 +37,8 @@ from pathlib import Path
 from typing import Any
 
 from .. import __version__, errors
-from ..media import MediaPool, scan_media_files
+from ..media import SLATE_MARKER_COLORS, MediaPool, MotionDeblurSettings, scan_media_files
+from ..project import SpeechGenerationSettings
 from ..resolve import Resolve
 
 try:
@@ -696,13 +697,25 @@ def _h_media_classify_audio(ctx: _Context, args: dict[str, Any]) -> dict[str, An
 
 def _h_media_deblur(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     target = _ai_media_target(ctx, args)
-    options: dict[str, Any] = {}
+    options: MotionDeblurSettings = {}
     if args.get("format"):
         options["Format"] = args["format"]
     if args.get("codec"):
         options["Codec"] = args["codec"]
+    if args.get("filename"):
+        options["FileName"] = args["filename"]
+    if args.get("encoding_profile"):
+        options["EncodingProfile"] = args["encoding_profile"]
     if bool(args.get("extreme", False)):
         options["UseExtremeMode"] = True
+    if bool(args.get("use_mark_in_out", False)):
+        options["UseMarkInMarkOut"] = True
+    if bool(args.get("source_resolution", False)):
+        options["RenderAtSourceRes"] = True
+    if bool(args.get("more_gpu_memory", False)):
+        options["UseMoreGpuMemory"] = True
+    if args.get("encoder"):
+        options["Encoder"] = args["encoder"]
     result = target.remove_motion_blur(options or None)
     if isinstance(result, list):
         return {
@@ -737,16 +750,22 @@ def _h_project_reset_intellisearch(ctx: _Context, _args: dict[str, Any]) -> dict
 
 def _h_project_generate_speech(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
     current = _current_project(ctx)
-    settings: dict[str, Any] = {
+    settings: SpeechGenerationSettings = {
         "TextInput": args["text"],
         "AddToTimeline": bool(args.get("add_to_timeline", True)),
     }
     if args.get("voice"):
         settings["VoiceModel"] = args["voice"]
+    if args.get("custom_voice_file"):
+        settings["CustomVoiceFile"] = args["custom_voice_file"]
     if args.get("speed") is not None:
         settings["Speed"] = float(args["speed"])
     if args.get("pitch") is not None:
         settings["Pitch"] = float(args["pitch"])
+    if args.get("variation") is not None:
+        settings["Variation"] = int(args["variation"])
+    if args.get("generation_id") is not None:
+        settings["GenerationID"] = int(args["generation_id"])
     if args.get("filename"):
         settings["Filename"] = args["filename"]
     if args.get("track") is not None:
@@ -1167,7 +1186,7 @@ def _h_eval(ctx: _Context, args: dict[str, Any]) -> Any:
 # ---------------------------------------------------------------------------
 
 
-_PAGE_NAMES = ("media", "cut", "edit", "fusion", "color", "fairlight", "deliver")
+_PAGE_NAMES = ("media", "photo", "cut", "edit", "fusion", "color", "fairlight", "deliver")
 
 
 def _build_registry() -> list[_ToolSpec]:
@@ -1744,7 +1763,16 @@ def _build_registry() -> list[_ToolSpec]:
                     "clip": {"type": "string"},
                     "format": {"type": "string"},
                     "codec": {"type": "string"},
+                    "filename": {"type": "string"},
+                    "encoding_profile": {"type": "string"},
                     "extreme": {"type": "boolean", "default": False},
+                    "use_mark_in_out": {"type": "boolean", "default": False},
+                    "source_resolution": {"type": "boolean", "default": False},
+                    "more_gpu_memory": {"type": "boolean", "default": False},
+                    "encoder": {
+                        "type": "string",
+                        "enum": ["Native", "MainConcept"],
+                    },
                 }
             ),
             handler=_h_media_deblur,
@@ -1762,7 +1790,11 @@ def _build_registry() -> list[_ToolSpec]:
                     "clip": {"type": "string"},
                     "faces": {"type": "boolean", "default": False},
                     "better": {"type": "boolean", "default": False},
-                    "color": {"type": "string", "default": "Blue"},
+                    "color": {
+                        "type": "string",
+                        "enum": list(SLATE_MARKER_COLORS),
+                        "default": "Blue",
+                    },
                 },
                 required=["kind"],
             ),
@@ -1783,11 +1815,17 @@ def _build_registry() -> list[_ToolSpec]:
                 {
                     "text": {"type": "string"},
                     "voice": {"type": "string", "description": "Voice model, e.g. 'Female 1'."},
+                    "custom_voice_file": {
+                        "type": "string",
+                        "description": "Full path to a custom voice sample.",
+                    },
                     "speed": {
                         "type": "number",
                         "description": "Speech speed multiplier (1.0 = normal).",
                     },
                     "pitch": {"type": "number", "description": "Voice pitch adjustment."},
+                    "variation": {"type": "integer"},
+                    "generation_id": {"type": "integer"},
                     "filename": {
                         "type": "string",
                         "description": "Name for the generated audio clip.",

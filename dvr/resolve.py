@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("dvr.resolve")
 
 
-# Resolve's GetCurrentPage / OpenPage strings.
-PAGES = ("media", "cut", "edit", "fusion", "color", "fairlight", "deliver")
+# Resolve's GetCurrentPage / OpenPage strings. Resolve 21 adds the Photo page.
+PAGES = ("media", "photo", "cut", "edit", "fusion", "color", "fairlight", "deliver")
 
 
 def _open_page(raw: Any, name: str) -> None:
@@ -159,6 +159,10 @@ class App:
 
     # --- layout presets ---------------------------------------------------
 
+    def layout_presets(self) -> list[str]:
+        """Return the saved UI layout preset names (Resolve 21+)."""
+        return self._preset_list("GetLayoutPresetList")
+
     def save_layout(self, name: str) -> None:
         """Save the current UI layout as a preset named ``name``."""
         self._layout_op("SaveLayoutPreset", name)
@@ -189,6 +193,72 @@ class App:
             raise errors.DvrError(
                 f"Could not import layout preset from {file_path!r}.",
                 state={"file_path": file_path, "name": name},
+            )
+
+    # --- burn-in presets --------------------------------------------------
+
+    def burn_in_presets(self) -> list[str]:
+        """Return the saved data burn-in preset names (Resolve 21+)."""
+        return self._preset_list("GetBurnInPresetList")
+
+    def delete_burn_in_preset(self, name: str) -> None:
+        """Delete a saved data burn-in preset."""
+        self._preset_op("DeleteBurnInPreset", name)
+
+    def import_burn_in_preset(self, file_path: str) -> None:
+        """Import a data burn-in preset from ``file_path``."""
+        self._preset_op("ImportBurnInPreset", file_path)
+
+    def export_burn_in_preset(self, name: str, file_path: str) -> None:
+        """Export a data burn-in preset to ``file_path``."""
+        self._preset_op("ExportBurnInPreset", name, file_path)
+
+    # --- user-preference presets -----------------------------------------
+
+    def user_preferences_presets(self) -> list[str]:
+        """Return the saved user-preference preset names (Resolve 21+)."""
+        return self._preset_list("GetUserPreferencesPresetList")
+
+    def load_user_preferences_preset(self, name: str) -> None:
+        """Load a saved user-preference preset."""
+        self._preset_op("LoadUserPreferencesPreset", name)
+
+    def save_user_preferences_preset(self, name: str) -> None:
+        """Save the current user preferences as a new preset."""
+        self._preset_op("SaveUserPreferencesPreset", name)
+
+    def delete_user_preferences_preset(self, name: str) -> None:
+        """Delete a saved user-preference preset."""
+        self._preset_op("DeleteUserPreferencesPreset", name)
+
+    def import_user_preferences_preset(
+        self,
+        file_path: str,
+        name: str | None = None,
+    ) -> None:
+        """Import a user-preference preset, optionally assigning ``name``."""
+        args = (file_path, name) if name is not None else (file_path,)
+        self._preset_op("ImportUserPreferencesPreset", *args)
+
+    def export_user_preferences_preset(self, name: str, file_path: str) -> None:
+        """Export a user-preference preset to ``file_path``."""
+        self._preset_op("ExportUserPreferencesPreset", name, file_path)
+
+    def _preset_list(self, method_name: str) -> list[str]:
+        method = getattr(self._raw, method_name, None)
+        if not callable(method):
+            raise errors.DvrError(f"This Resolve build does not expose {method_name}.")
+        return [str(name) for name in (method() or [])]
+
+    def _preset_op(self, method_name: str, *args: Any) -> None:
+        method = getattr(self._raw, method_name, None)
+        if not callable(method):
+            raise errors.DvrError(f"This Resolve build does not expose {method_name}.")
+        if method(*args) is False:
+            raise errors.DvrError(
+                f"{method_name} failed.",
+                cause=f"{method_name} returned False.",
+                state={"args": list(args)},
             )
 
     def _layout_op(self, method_name: str, *args: Any) -> None:

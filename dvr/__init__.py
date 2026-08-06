@@ -14,6 +14,7 @@ from __future__ import annotations
 from . import audio, diff, doctor, errors, gallery, interchange, lint, schema, snapshot, spec, vcr
 from .color import ColorGroup, ColorOps, NodeGraph
 from .media import (
+    SLATE_MARKER_COLORS,
     Asset,  # deprecated alias of Clip (kept for back-compat)
     Bin,  # deprecated alias of Folder
     Clip,
@@ -21,9 +22,10 @@ from .media import (
     MediaPool,
     MediaPoolItem,
     MediaStorage,
+    MotionDeblurSettings,
 )
-from .project import Project, ProjectNamespace, Settings
-from .render import RenderJob, RenderNamespace
+from .project import Project, ProjectNamespace, Settings, SpeechGenerationSettings
+from .render import RenderJob, RenderNamespace, RenderSettings
 from .resolve import App, PageController, Resolve
 from .timeline import (
     ClipFusion,  # deprecated alias of ItemFusion
@@ -50,6 +52,7 @@ except ImportError:  # pragma: no cover - generated at build time
     __version__ = "0.0.0+local"
 
 __all__ = [
+    "SLATE_MARKER_COLORS",
     "App",
     "Asset",
     "Bin",
@@ -69,14 +72,17 @@ __all__ = [
     "MediaPool",
     "MediaPoolItem",
     "MediaStorage",
+    "MotionDeblurSettings",
     "NodeGraph",
     "PageController",
     "Project",
     "ProjectNamespace",
     "RenderJob",
     "RenderNamespace",
+    "RenderSettings",
     "Resolve",
     "Settings",
+    "SpeechGenerationSettings",
     "Takes",
     "Timeline",
     "TimelineItem",

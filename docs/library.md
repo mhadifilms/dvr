@@ -17,8 +17,8 @@ The connection handles macOS's LAN-IP quirk and timeouts every underlying API ca
 ## Domain accessors
 
 ```python
-r.app           # page, version, product, quit
-r.project       # list, current, create, load, ensure, delete, archive, export, import
+r.app           # page, version, product, UI/burn-in/preference presets, quit
+r.project       # list/attributes, current, create, load, ensure, delete, archive, export, import
 r.timeline      # list, current, get, ensure, create, switch, delete (project-scoped)
 r.render        # queue, presets, formats, codecs, submit, watch, status, stop
 r.storage       # filesystem-side: volumes, file lists, bulk import
@@ -42,6 +42,7 @@ tl.tracks("video")         # all video tracks
 tl.track("video", 2)       # V2
 tl.clips("video")          # ClipQuery over all video clips
 tl.clips("video").where(lambda c: c.duration > 48)
+tl.selected_clips()        # Resolve 21 selected timeline items, with track metadata
 tl.markers()               # {frame: {...}}
 tl.add_marker(120, color="Red", name="check sync")
 ```
@@ -97,17 +98,26 @@ item.text.properties()                          # snapshot of editable inputs
 item.is_text                                     # True for Text+ items
 ```
 
-`generate_speech` exposes Resolve's full text-to-speech settings (voice,
-speed, pitch, filename), and `create_subtitles_from_audio` drives the Whisper
-captioner:
+`generate_speech` accepts the typed `SpeechGenerationSettings` payload,
+including voice/custom-voice, speed, variation, pitch, generation ID,
+filename, and timeline placement. `create_subtitles_from_audio` drives the
+Whisper captioner:
 
 ```python
 project.generate_speech(
-    {"TextInput": "Welcome back.", "VoiceModel": "Female 1", "Speed": 1.0},
+    {
+        "TextInput": "Welcome back.",
+        "VoiceModel": "Female 1",
+        "Variation": 2,
+        "Speed": 1.0,
+    },
     "01:00:00:00",
 )
 tl.create_subtitles_from_audio(language="en", chars_per_line=42)
 ```
+
+Resolve 21.0.4 render additions pass through the typed `RenderSettings`
+payload: `UseFullExtents`, `AddFrameHandles`, and `DataBurnIn`.
 
 ## Idempotent context managers
 

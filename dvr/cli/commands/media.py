@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 
 from ... import errors
-from ...media import Clip, Folder, scan_media_files
+from ...media import Clip, Folder, MotionDeblurSettings, scan_media_files
 from ...project import Project
 from .. import output
 from ..session import current_project as _current_project
@@ -265,16 +265,50 @@ def deblur_cmd(
     codec: Annotated[
         str | None, typer.Option("--codec", help="Output codec, e.g. H264, ProRes422.")
     ] = None,
+    filename: Annotated[
+        str | None, typer.Option("--filename", help="Filename for the deblurred render.")
+    ] = None,
+    encoding_profile: Annotated[
+        str | None,
+        typer.Option("--encoding-profile", help="H.264/H.265 profile, e.g. Main10."),
+    ] = None,
     extreme: Annotated[bool, typer.Option("--extreme", help="Use extreme deblur mode.")] = False,
+    use_mark_in_out: Annotated[
+        bool, typer.Option("--use-mark-in-out", help="Render only the clip mark range.")
+    ] = False,
+    source_resolution: Annotated[
+        bool, typer.Option("--source-resolution", help="Render at source resolution.")
+    ] = False,
+    more_gpu_memory: Annotated[
+        bool, typer.Option("--more-gpu-memory", help="Allow the deblur job more GPU memory.")
+    ] = False,
+    encoder: Annotated[
+        str | None,
+        typer.Option("--encoder", help="H.265 encoder: Native or MainConcept."),
+    ] = None,
 ) -> None:
     """Apply AI motion deblur, rendering new clips (Resolve 21+, Studio)."""
-    options: dict[str, object] = {}
+    options: MotionDeblurSettings = {}
     if fmt:
         options["Format"] = fmt
     if codec:
         options["Codec"] = codec
+    if filename:
+        options["FileName"] = filename
+    if encoding_profile:
+        options["EncodingProfile"] = encoding_profile
     if extreme:
         options["UseExtremeMode"] = True
+    if use_mark_in_out:
+        options["UseMarkInMarkOut"] = True
+    if source_resolution:
+        options["RenderAtSourceRes"] = True
+    if more_gpu_memory:
+        options["UseMoreGpuMemory"] = True
+    if encoder:
+        if encoder not in ("Native", "MainConcept"):
+            raise typer.BadParameter("encoder must be 'Native' or 'MainConcept'.")
+        options["Encoder"] = encoder
     target = _ai_target(ctx, bin=bin, clip=clip)
     result = target.remove_motion_blur(options or None)
     if isinstance(result, list):

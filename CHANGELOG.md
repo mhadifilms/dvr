@@ -4,7 +4,7 @@ All notable changes to `dvr` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.0] - 2026-08-05
 
 ### Fixed
 
@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dictionaries, and keyword arguments before forwarding API calls.
 
 ### Added
+
+- **DaVinci Resolve 21.0.4 API refresh.** The library now recognizes the
+  Photo page; wraps layout, data burn-in, and user-preference preset lists
+  and operations; exposes project attributes and selected timeline clips;
+  catalogs the new `timelineSampleRate` project setting; and publishes typed
+  `RenderSettings`, `MotionDeblurSettings`, and `SpeechGenerationSettings`
+  payloads. The final AI schemas now include all documented motion-deblur
+  output controls, custom voice / variation / generation ID settings, and
+  validation for all 16 Slate marker colors. Matching CLI and MCP arguments
+  are included. Render settings accept the new `UseFullExtents`,
+  `AddFrameHandles`, and `DataBurnIn` keys.
 
 - **Cross-app parity contract with [prpr](https://github.com/mhadifilms/prpr)**
   (the Adobe Premiere Pro sibling of `dvr`): `dvr.errors.NotSupportedError`

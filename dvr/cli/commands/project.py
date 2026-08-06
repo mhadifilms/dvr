@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from ...project import SpeechGenerationSettings
 from .. import output
 from ..session import resolve_from_ctx as _resolve
 
@@ -200,10 +201,20 @@ def generate_speech(
     voice: Annotated[
         str | None, typer.Option("--voice", help="Voice model, e.g. 'Female 1'.")
     ] = None,
+    custom_voice_file: Annotated[
+        str | None,
+        typer.Option("--custom-voice-file", help="Full path to a custom voice sample."),
+    ] = None,
     speed: Annotated[
         float | None, typer.Option("--speed", help="Speech speed multiplier (1.0 = normal).")
     ] = None,
     pitch: Annotated[float | None, typer.Option("--pitch", help="Voice pitch adjustment.")] = None,
+    variation: Annotated[
+        int | None, typer.Option("--variation", help="Voice variation selector.")
+    ] = None,
+    generation_id: Annotated[
+        int | None, typer.Option("--generation-id", help="Speech generation identifier.")
+    ] = None,
     filename: Annotated[
         str | None, typer.Option("--filename", help="Name for the generated audio clip.")
     ] = None,
@@ -219,13 +230,22 @@ def generate_speech(
 ) -> None:
     """Generate a text-to-speech audio clip (Resolve 21+, Studio)."""
     proj = _current(ctx)
-    settings: dict[str, object] = {"TextInput": text, "AddToTimeline": add_to_timeline}
+    settings: SpeechGenerationSettings = {
+        "TextInput": text,
+        "AddToTimeline": add_to_timeline,
+    }
     if voice:
         settings["VoiceModel"] = voice
+    if custom_voice_file:
+        settings["CustomVoiceFile"] = custom_voice_file
     if speed is not None:
         settings["Speed"] = speed
     if pitch is not None:
         settings["Pitch"] = pitch
+    if variation is not None:
+        settings["Variation"] = variation
+    if generation_id is not None:
+        settings["GenerationID"] = generation_id
     if filename:
         settings["Filename"] = filename
     if track is not None:

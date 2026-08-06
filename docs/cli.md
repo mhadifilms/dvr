@@ -107,7 +107,16 @@ Generate spoken audio from text, with full voice controls:
 
 ```bash
 dvr project generate-speech --text "Welcome back." --voice "Female 1" \
-  --speed 1.0 --pitch 0 --track 2
+  --variation 2 --speed 1.0 --pitch 0 --track 2
+```
+
+The 21.0.4 motion-deblur surface includes output name/format/codec/profile,
+mark-range and source-resolution controls, GPU-memory mode, and H.265 encoder:
+
+```bash
+dvr media deblur --clip shot010 --filename shot010_deblur \
+  --format mov --codec H265 --encoding-profile Main10 \
+  --use-mark-in-out --source-resolution --more-gpu-memory --encoder Native
 ```
 
 Auto-caption a timeline from its audio (Whisper, Studio):

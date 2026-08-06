@@ -30,7 +30,7 @@ import logging
 import os
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` shadow
+from typing import TYPE_CHECKING, Any, List, TypedDict  # noqa: UP035 — `List` avoids `list` shadow
 
 from . import errors
 from ._wrap import require, requires_method
@@ -39,6 +39,53 @@ if TYPE_CHECKING:
     from .timeline import Timeline
 
 logger = logging.getLogger("dvr.media")
+
+
+class MotionDeblurSettings(TypedDict, total=False):
+    """Resolve 21.0.4 ``RemoveMotionBlur`` setting payload."""
+
+    FileName: str
+    Format: str
+    Codec: str
+    EncodingProfile: str
+    UseExtremeMode: bool
+    UseMarkInMarkOut: bool
+    RenderAtSourceRes: bool
+    UseMoreGpuMemory: bool
+    Encoder: str
+
+
+SLATE_MARKER_COLORS: tuple[str, ...] = (
+    "Blue",
+    "Cyan",
+    "Green",
+    "Yellow",
+    "Red",
+    "Pink",
+    "Purple",
+    "Fuchsia",
+    "Rose",
+    "Lavender",
+    "Sky",
+    "Mint",
+    "Lemon",
+    "Sand",
+    "Cocoa",
+    "Cream",
+)
+
+
+def _slate_marker_color(value: str) -> str:
+    """Return a documented Resolve 21 slate marker color."""
+    canonical = {color.casefold(): color for color in SLATE_MARKER_COLORS}
+    try:
+        return canonical[value.casefold()]
+    except (AttributeError, KeyError) as exc:
+        raise errors.MediaError(
+            f"Unsupported slate marker color {value!r}.",
+            fix=f"Use one of: {', '.join(SLATE_MARKER_COLORS)}.",
+            state={"requested": value, "valid": list(SLATE_MARKER_COLORS)},
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -404,13 +451,14 @@ class Clip:
         )
         clear()
 
-    def remove_motion_blur(self, options: dict[str, Any] | None = None) -> Clip | None:
+    def remove_motion_blur(self, options: MotionDeblurSettings | None = None) -> Clip | None:
         """Apply AI motion deblur, returning the newly created clip.
 
         ``options`` maps to Resolve's ``deblurOption`` dict (see the
         "Motion Deblur Settings" section of the scripting docs: keys like
-        ``FileName``, ``Format``, ``Codec``, ``UseExtremeMode``,
-        ``UseMarkInMarkOut``, ``RenderAtSourceRes``, ``UseMoreGpuMemory``).
+        ``FileName``, ``Format``, ``Codec``, ``EncodingProfile``,
+        ``UseExtremeMode``, ``UseMarkInMarkOut``, ``RenderAtSourceRes``,
+        ``UseMoreGpuMemory``, and ``Encoder``).
         Requires DaVinci Resolve Studio (Resolve 21+).
         """
         deblur = requires_method(
@@ -465,7 +513,7 @@ class Clip:
             error=errors.MediaError,
             state={"clip": self.name},
         )
-        return bool(analyze(marker_color))
+        return bool(analyze(_slate_marker_color(marker_color)))
 
     # --- inspection -----------------------------------------------------
 
@@ -697,7 +745,7 @@ class Folder:
 
     def remove_motion_blur(
         self,
-        options: dict[str, Any] | None = None,
+        options: MotionDeblurSettings | None = None,
     ) -> list[tuple[Clip, Clip]]:
         """Apply AI motion deblur to every clip in the folder (Resolve 21+, Studio).
 
@@ -739,7 +787,7 @@ class Folder:
             error=errors.MediaError,
             state={"folder": self.name},
         )
-        return bool(analyze(marker_color))
+        return bool(analyze(_slate_marker_color(marker_color)))
 
     def export(self, file_path: str) -> None:
         """Export the folder as a ``.drb``."""

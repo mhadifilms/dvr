@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from . import errors
 
@@ -32,6 +32,46 @@ _DEFAULT_STALL_SECONDS = 300.0
 
 # Default budget for :meth:`RenderNamespace.clear` per-job deletion fallback.
 _DEFAULT_CLEAR_TIMEOUT_SECONDS = 10.0
+
+
+class RenderSettings(TypedDict, total=False):
+    """Documented ``Project.SetRenderSettings`` payload for Resolve 21.0.4.
+
+    Resolve 21 adds ``UseFullExtents``, ``AddFrameHandles``, and
+    ``DataBurnIn`` to the existing setting surface.
+    """
+
+    SelectAllFrames: bool
+    MarkIn: int
+    MarkOut: int
+    TargetDir: str
+    CustomName: str
+    UniqueFilenameStyle: int
+    ExportVideo: bool
+    ExportAudio: bool
+    FormatWidth: int
+    FormatHeight: int
+    FrameRate: float
+    PixelAspectRatio: str
+    VideoQuality: int | str
+    AudioCodec: str
+    AudioBitDepth: int
+    AudioSampleRate: int
+    ColorSpaceTag: str
+    GammaTag: str
+    ExportAlpha: bool
+    EncodingProfile: str
+    MultiPassEncode: bool
+    AlphaMode: int
+    NetworkOptimization: bool
+    ClipStartFrame: int
+    TimelineStartTimecode: str
+    ReplaceExistingFilesInPlace: bool
+    ExportSubtitle: bool
+    SubtitleFormat: str
+    UseFullExtents: bool
+    AddFrameHandles: int
+    DataBurnIn: str
 
 
 class RenderJob:
@@ -437,7 +477,7 @@ class RenderNamespace:
         preset: str | None = None,
         format: str | None = None,
         codec: str | None = None,
-        settings: dict[str, Any] | None = None,
+        settings: RenderSettings | None = None,
         start: bool = True,
     ) -> RenderJob:
         """Configure and queue a render of the current timeline.
@@ -541,7 +581,7 @@ class RenderNamespace:
         preset: str | None = None,
         format: str | None = None,
         codec: str | None = None,
-        settings: dict[str, Any] | None = None,
+        settings: RenderSettings | None = None,
         start: bool = True,
     ) -> list[RenderJob]:
         """Queue one render job per timeline item, with the timeline marks
@@ -644,7 +684,7 @@ class RenderNamespace:
         preset: str | None = None,
         format: str | None = None,
         codec: str | None = None,
-        settings: dict[str, Any] | None = None,
+        settings: RenderSettings | None = None,
         poll_interval: float = 1.0,
         timeout: float | None = None,
         stall_seconds: float = _DEFAULT_STALL_SECONDS,
@@ -713,7 +753,7 @@ class RenderNamespace:
         preset: str | None = None,
         format: str | None = None,
         codec: str | None = None,
-        settings: dict[str, Any] | None = None,
+        settings: RenderSettings | None = None,
         start: bool = True,
     ) -> RenderJob:
         """Convenience for "render exactly this one timeline item".

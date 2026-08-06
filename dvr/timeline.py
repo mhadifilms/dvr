@@ -1823,6 +1823,29 @@ class Timeline:
                         continue
         return 1
 
+    def _locate_item(self, raw_item: Any) -> tuple[str, int]:
+        """Locate a raw timeline item without guessing its track metadata."""
+        try:
+            target_id = raw_item.GetUniqueId()
+        except Exception:  # boundary
+            target_id = None
+        for track_type in _TRACK_TYPES:
+            for track_index in range(1, self.track_count(track_type) + 1):
+                for candidate in self._raw.GetItemListInTrack(track_type, track_index) or []:
+                    if candidate is raw_item:
+                        return track_type, track_index
+                    if target_id is None:
+                        continue
+                    try:
+                        if candidate.GetUniqueId() == target_id:
+                            return track_type, track_index
+                    except Exception:  # boundary
+                        continue
+        raise errors.TimelineError(
+            "Resolve returned a selected clip that is not present on the timeline.",
+            state={"timeline": self.name, "item_id": target_id},
+        )
+
     def insert_title(
         self,
         title: str = "Text+",
@@ -2009,6 +2032,22 @@ class Timeline:
                 f"Could not {'link' if linked else 'unlink'} {len(raws)} item(s).",
                 state={"count": len(raws), "linked": linked},
             )
+
+    def selected_clips(self) -> list[TimelineItem]:
+        """Return the currently selected timeline items (Resolve 21+)."""
+        method = getattr(self._raw, "GetSelectedClips", None)
+        if not callable(method):
+            raise errors.TimelineError(
+                "This Resolve build does not expose timeline clip selection.",
+                cause="Timeline.GetSelectedClips is unavailable.",
+                fix="Requires DaVinci Resolve 21 or newer.",
+                state={"timeline": self.name},
+            )
+        selected: list[TimelineItem] = []
+        for raw_item in method() or []:
+            track_type, track_index = self._locate_item(raw_item)
+            selected.append(TimelineItem(raw_item, track_type=track_type, track_index=track_index))
+        return selected
 
     @property
     def current_video_item(self) -> TimelineItem | None:
