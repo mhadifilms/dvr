@@ -2,6 +2,9 @@
 
 The Model Context Protocol server exposes `dvr` as typed tools for LLM agents — Claude, Cursor, or any other MCP-compatible client. LLMs call structured tools instead of parsing shell output.
 
+The server uses the MCP Python SDK 2.x protocol models and low-level callback
+API while preserving explicit JSON schemas for every `dvr` tool.
+
 ## Install
 
 ```bash

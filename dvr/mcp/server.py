@@ -42,9 +42,21 @@ from ..project import SpeechGenerationSettings
 from ..resolve import Resolve
 
 try:
-    from mcp.server import Server
+    from mcp.server import Server, ServerRequestContext
     from mcp.server.stdio import stdio_server
-    from mcp.types import CallToolResult, Resource, TextContent, Tool
+    from mcp.types import (
+        CallToolRequestParams,
+        CallToolResult,
+        ListResourcesResult,
+        ListToolsResult,
+        PaginatedRequestParams,
+        ReadResourceRequestParams,
+        ReadResourceResult,
+        Resource,
+        TextContent,
+        TextResourceContents,
+        Tool,
+    )
 except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "The MCP server requires the `mcp` package. Reinstall with `pip install dvr`."
@@ -2362,7 +2374,7 @@ def _err(exc: errors.DvrError | Exception) -> CallToolResult:
             }
         }
     return CallToolResult(
-        content=[TextContent(type="text", text=_serialize(payload))], isError=True
+        content=[TextContent(type="text", text=_serialize(payload))], is_error=True
     )
 
 
@@ -2410,49 +2422,67 @@ def list_tools_metadata() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def build_server(*, auto_launch: bool = True, timeout: float = 30.0) -> Server:
+def build_server(*, auto_launch: bool = True, timeout: float = 30.0) -> Server[Any]:
     """Construct an MCP Server with all `dvr` tools and resources registered."""
-    server = Server("dvr")
     cache = _ResolveCache(auto_launch=auto_launch, timeout=timeout)
     specs = _build_registry()
     registry = {s.name: s for s in specs}
-    tools = [Tool(name=s.name, description=s.description, inputSchema=s.schema) for s in specs]
+    tools = [Tool(name=s.name, description=s.description, input_schema=s.schema) for s in specs]
 
     resource_specs = _build_resource_registry()
     resource_registry = {r.uri: r for r in resource_specs}
     resources = [
         Resource(
-            uri=r.uri,  # type: ignore[arg-type]
+            uri=r.uri,
             name=r.name,
             description=r.description,
-            mimeType="application/json",
+            mime_type="application/json",
         )
         for r in resource_specs
     ]
 
-    @server.list_tools()
-    async def _list_tools() -> list[Tool]:
-        return tools
+    async def _list_tools(
+        _ctx: ServerRequestContext[Any], _params: PaginatedRequestParams | None
+    ) -> ListToolsResult:
+        return ListToolsResult(tools=tools)
 
-    @server.call_tool()
-    async def _call_tool(name: str, arguments: dict[str, Any] | None) -> CallToolResult:
-        return _dispatch(registry, cache, name, arguments or {})
+    async def _call_tool(
+        _ctx: ServerRequestContext[Any], params: CallToolRequestParams
+    ) -> CallToolResult:
+        return _dispatch(registry, cache, params.name, params.arguments or {})
 
-    @server.list_resources()
-    async def _list_resources() -> list[Resource]:
-        return resources
+    async def _list_resources(
+        _ctx: ServerRequestContext[Any], _params: PaginatedRequestParams | None
+    ) -> ListResourcesResult:
+        return ListResourcesResult(resources=resources)
 
-    @server.read_resource()
-    async def _read_resource(uri: Any) -> str:
-        spec = resource_registry.get(str(uri))
+    async def _read_resource(
+        _ctx: ServerRequestContext[Any], params: ReadResourceRequestParams
+    ) -> ReadResourceResult:
+        spec = resource_registry.get(str(params.uri))
         if spec is None:
             raise errors.DvrError(
-                f"Unknown resource: {uri}",
+                f"Unknown resource: {params.uri}",
                 fix=f"Available: {', '.join(resource_registry)}",
             )
-        return _serialize(spec.handler(_Context(cache=cache)))
+        return ReadResourceResult(
+            contents=[
+                TextResourceContents(
+                    uri=params.uri,
+                    mime_type="application/json",
+                    text=_serialize(spec.handler(_Context(cache=cache))),
+                )
+            ]
+        )
 
-    return server
+    return Server(
+        "dvr",
+        version=__version__,
+        on_list_tools=_list_tools,
+        on_call_tool=_call_tool,
+        on_list_resources=_list_resources,
+        on_read_resource=_read_resource,
+    )
 
 
 async def _run_async(*, auto_launch: bool, timeout: float) -> None:
