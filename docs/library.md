@@ -57,7 +57,7 @@ clip.set_properties({"crop_top": 120, "blend": "multiply"})
 clip.edit.transform(pan=40, zoom=1.1, rotation=2)
 clip.edit.crop(top=120, bottom=120, retain=True)
 tl.clips("video").where(lambda c: c.track_index == 2).crop(top=80, bottom=80)
-clip.color.set_cdl(slope=(1, 1, 1, 0.95))      # color page operations
+clip.color.set_cdl(slope=(0.95, 0.95, 0.95))      # color page operations
 clip.color.export_lut("/Volumes/luts/grade.cube", size=33)
 clip.fusion.add()                              # add a Fusion comp
 clip.takes.add(asset)                          # alternate takes

@@ -16,6 +16,7 @@ The :class:`ColorOps` accessor is exposed on :class:`Clip.color`.
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any, List  # noqa: UP035
 
 from . import errors
@@ -147,8 +148,8 @@ class ColorGroup:
 # ---------------------------------------------------------------------------
 
 
-# CDL value bundles. Each list is [Slope_R, Slope_G, Slope_B, Slope_Master],
-# matching Resolve's ``SetCDL`` schema.
+# Resolve SetCDL accepts space-separated RGB triples, without a master channel.
+CDLVector = tuple[float, float, float] | tuple[float, float, float, float]
 CDLKeys = ("NodeIndex", "Slope", "Offset", "Power", "Saturation")
 
 
@@ -203,25 +204,40 @@ class ColorOps:
         self,
         *,
         node_index: int = 1,
-        slope: tuple[float, float, float, float] | None = None,
-        offset: tuple[float, float, float, float] | None = None,
-        power: tuple[float, float, float, float] | None = None,
+        slope: CDLVector | None = None,
+        offset: CDLVector | None = None,
+        power: CDLVector | None = None,
         saturation: float | None = None,
     ) -> None:
         """Apply a CDL grade to a single node.
 
-        Each of ``slope``/``offset``/``power`` is a 4-tuple
-        ``(R, G, B, Master)``. Omitted values are left untouched.
+        Each of ``slope``/``offset``/``power`` is an RGB triple. Omitted
+        values are left untouched. Legacy four-tuples are accepted only when
+        the fourth value is neutral (1 for slope/power, 0 for offset); Resolve
+        has no CDL master channel.
         """
+        if node_index < 1:
+            raise errors.ColorError("CDL node index must be positive.")
         params: dict[str, Any] = {"NodeIndex": str(node_index)}
-        if slope is not None:
-            params["Slope"] = ",".join(f"{v:.4f}" for v in slope)
-        if offset is not None:
-            params["Offset"] = ",".join(f"{v:.4f}" for v in offset)
-        if power is not None:
-            params["Power"] = ",".join(f"{v:.4f}" for v in power)
+        for key, values, neutral in (
+            ("Slope", slope, 1),
+            ("Offset", offset, 0),
+            ("Power", power, 1),
+        ):
+            if values is None:
+                continue
+            if len(values) not in (3, 4) or not all(math.isfinite(v) for v in values):
+                raise errors.ColorError(f"CDL {key} requires three finite RGB values.")
+            if len(values) == 4 and values[3] != neutral:
+                raise errors.ColorError(
+                    f"CDL {key} has no master channel.",
+                    fix=f"Supply an RGB triple, or a legacy four-tuple with neutral master {neutral}.",
+                )
+            params[key] = " ".join(f"{v:.8g}" for v in values[:3])
         if saturation is not None:
-            params["Saturation"] = f"{saturation:.4f}"
+            if not math.isfinite(saturation) or saturation < 0:
+                raise errors.ColorError("CDL saturation must be finite and nonnegative.")
+            params["Saturation"] = f"{saturation:.8g}"
 
         if not self._raw.SetCDL(params):
             raise errors.ColorError(
