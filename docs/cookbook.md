@@ -278,7 +278,7 @@ dvr media ls --format json | jq '.[] | select(.file_path == "")'
 from dvr import Resolve
 
 r = Resolve()
-slope = (1.05, 1.05, 1.05, 1.0)
+slope = (1.05, 1.05, 1.05)
 for clip in r.timeline.current.clips("video").where(lambda c: c.track_index == 2):
     clip.color.set_cdl(node_index=1, slope=slope)
 ```

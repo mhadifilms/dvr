@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Serialize CDL slope, offset, and power as the space-separated RGB triples
+  required by Resolve. Comma-separated four-channel values were rejected by the
+  live application. Legacy four-tuples remain accepted when their master value
+  is neutral; unsupported master adjustments now produce an actionable error.
+
 ## [1.6.1] - 2026-08-06
 
 ### Fixed
