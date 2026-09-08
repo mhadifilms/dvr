@@ -2166,13 +2166,14 @@ class Timeline:
         preset: str | None = None,
     ) -> None:
         """Run Resolve's Whisper-based audio-to-subtitle generation."""
-        params: dict[str, Any] = {
-            "language": language,
-            "charactersPerLine": chars_per_line,
-            "lineBreakType": line_break_type,
-        }
-        if preset is not None:
-            params["preset"] = preset
+        from .subtitles import caption_settings
+
+        params = caption_settings(
+            language=language,
+            chars_per_line=chars_per_line,
+            line_break_type=line_break_type,
+            preset=preset,
+        )
         if not self._raw.CreateSubtitlesFromAudio(params):
             raise errors.TimelineError(
                 f"Could not create subtitles for timeline {self.name!r}.",

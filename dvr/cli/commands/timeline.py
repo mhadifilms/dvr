@@ -246,10 +246,10 @@ def subtitles(
         int, typer.Option("--chars-per-line", help="Max characters per subtitle line.")
     ] = 42,
     line_break: Annotated[
-        str, typer.Option("--line-break", help="Line break type, e.g. Auto.")
+        str, typer.Option("--line-break", help="Auto (preset default), Single, or Double.")
     ] = "Auto",
     preset: Annotated[
-        str | None, typer.Option("--preset", help="Subtitle caption preset name.")
+        str | None, typer.Option("--preset", help="Default, Teletext, or Netflix.")
     ] = None,
 ) -> None:
     """Generate subtitles from the current timeline's audio (Whisper, Studio)."""
