@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Translate subtitle language, line-break, and caption-preset names into Resolve's
+  numeric Auto Caption settings. Validate unsupported names and character limits
+  before invoking transcription. `Auto` keeps the preset's line-break default.
+
 - Serialize CDL slope, offset, and power as the space-separated RGB triples
   required by Resolve. Comma-separated four-channel values were rejected by the
   live application. Legacy four-tuples remain accepted when their master value
