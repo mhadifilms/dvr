@@ -246,7 +246,7 @@ class ColorOps:
                 state={"clip": self._clip.name, "params": params},
             )
 
-    def export_lut(self, file_path: str, *, size: int = 33) -> None:
+    def export_lut(self, file_path: str, *, size: int | str = 33) -> None:
         """Export the current grade as a 1D/3D LUT.
 
         ``size`` corresponds to Resolve's ``EXPORT_LUT_*`` enum: 17, 33,

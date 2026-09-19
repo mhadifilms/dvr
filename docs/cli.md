@@ -20,7 +20,10 @@ dvr project   list | current | ensure | create | load | delete | save | export |
 dvr timeline  list | current | inspect | ensure | create | switch | delete | add-title | subtitles
 dvr media     inspect | bins | ls | scan | mkbin | import | relink | storage
 dvr clip      ls | inspect | set | transform | crop | composite | retime | reset | text | capabilities
+dvr color     inspect | cdl | lut get/set/export | version ls/add/load/delete | copy | reset | group
 dvr render    queue | presets | formats | codecs | submit | status | watch | stop | clear
+dvr lut       root | ls | generate | rm                          (files in Resolve's LUT dir)
+dvr dctl      ls | cat | write | validate | rm                   (files in Resolve's LUT dir)
 dvr spec      export                                             (adopt live projects into specs)
 dvr serve     start | stop | status | methods                   (daemon mode)
 dvr mcp       serve                                              (MCP server for LLM agents)
@@ -144,3 +147,48 @@ dvr media scan /Volumes/Card01 | jq '.[].path'
 ## Errors
 
 When a command fails, the CLI exits with code `1` and writes a structured error to stderr (in the chosen output format). This applies to every command — connection failures, missing projects, invalid bins, and so on all render as the same `type` / `message` / `cause` / `fix` / `state` payload instead of a Python traceback. See [Errors and diagnostics](concepts/errors.md) for the field layout.
+
+## Color grading
+
+Selection works exactly like `dvr clip`: `--where` uses the same expression
+language and `--track` narrows by track type (color commands default to
+video).
+
+```bash
+dvr color inspect --where "track_index == 1"      # node graph, versions, group
+dvr color cdl --slope 1.0 0.98 0.95 --saturation 55 --where "name contains 'SH010'"
+dvr color lut set /path/to/show.cube --node 2
+dvr color lut export ./grade.cube --size 65
+dvr color version add "client_note_01"
+dvr color copy --source PLATE_v003                # grade the rest from one clip
+```
+
+Every mutating color command takes `--dry-run`, which prints the clips it
+would touch and writes nothing.
+
+## LUT and DCTL files
+
+Resolve loads LUTs and DCTLs from a directory on disk, not from the project,
+and the scripting API cannot create or inspect them. These commands manage
+that directory; run `dvr render refresh-luts` afterwards so Resolve picks up
+new files.
+
+```bash
+dvr lut root                                      # where dvr reads and writes
+dvr lut ls
+dvr lut generate dvr/warm.cube --transform "(r ** 0.8, g ** 0.85, b)" --size 33
+dvr dctl write dvr/cool.dctl --file ./cool.dctl
+dvr dctl validate ./cool.dctl                     # check without writing
+```
+
+`--transform` is a Python expression over `r`, `g` and `b` in `[0, 1]`
+returning an `(r, g, b)` tuple. It runs with imports and dunder access
+blocked, so it cannot reach the filesystem or network.
+
+DCTL validation is a structural check — entry point and bracket balance — not
+a compile. `dvr` runs outside Resolve and has no access to its GPU toolchain,
+so errors inside the function body still surface in Resolve's console.
+
+Paths are resolved inside the LUT directory and traversal outside it is
+refused. `DVR_LUT_DIR` overrides the location, which matters on Linux and in
+tests.

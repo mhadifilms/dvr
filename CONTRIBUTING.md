@@ -68,3 +68,24 @@ Versioning follows [SemVer](https://semver.org/). Until 1.0, breaking changes ca
 ## Trademark note
 
 This project is not affiliated with Blackmagic Design. When contributing copy, code comments, or examples, do not imply official endorsement. Use lowercase `dvr` for the project name and reserve "DaVinci Resolve" for references to the application itself.
+
+## Enum tables must match the live application
+
+`dvr` keeps Resolve's magic numbers in explicit Python tables so building a
+payload never opens a connection. The cost is drift: a table is correct only
+until Blackmagic changes the API, and a missing entry silently becomes `dvr`
+rejecting something Resolve supports. Version 1.6.4 shipped exactly that —
+16 of 26 caption languages.
+
+Before tagging a release, run the check against a running Resolve:
+
+```bash
+python scripts/check_api_truth.py
+```
+
+It verifies both directions: every value `dvr` hard-codes must match the live
+constant, and every constant the application exposes must be present in the
+table. Coverage works by probing a candidate name list, because Resolve's
+scripting object does not enumerate constants through `dir()`. When Resolve
+gains a language, add its English name to `_LANGUAGE_CANDIDATES` so the check
+can see it.

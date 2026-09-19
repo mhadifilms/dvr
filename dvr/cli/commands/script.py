@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 import typer
 
-from ... import errors
+from ... import errors, sandbox
 from ...resolve import Resolve
 from .. import output
 from ..session import resolve_from_ctx
@@ -28,8 +28,19 @@ def register(app: typer.Typer) -> None:
             str,
             typer.Argument(help="Python expression. `r` is the live Resolve instance."),
         ],
+        unsafe: Annotated[
+            bool,
+            typer.Option(
+                "--unsafe",
+                help="Allow imports and dunder access. Only for expressions that need host access.",
+            ),
+        ] = False,
     ) -> None:
         """Evaluate a Python expression with `r = Resolve()` already bound.
+
+        By default the expression runs with imports and dunder attribute access
+        blocked, so it cannot reach the filesystem, network, or subprocesses.
+        Pass ``--unsafe`` for unrestricted Python.
 
         Examples:
 
@@ -41,7 +52,7 @@ def register(app: typer.Typer) -> None:
         r = resolve_from_ctx(ctx)
         ns = _ns(r)
         try:
-            value = eval(expression, ns)
+            value = eval(expression, ns) if unsafe else sandbox.restricted_eval(expression, ns)
         except errors.DvrError as exc:
             output.emit_error(exc, fmt=cfg.get("format"))
             raise typer.Exit(1) from exc

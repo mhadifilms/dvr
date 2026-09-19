@@ -36,7 +36,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from .. import __version__, errors
+from .. import __version__, errors, luts, sandbox
 from ..media import SLATE_MARKER_COLORS, MediaPool, MotionDeblurSettings, scan_media_files
 from ..project import SpeechGenerationSettings
 from ..resolve import Resolve
@@ -555,6 +555,265 @@ def _h_clip_capabilities(_ctx: _Context, _args: dict[str, Any]) -> dict[str, Any
     from .. import schema as schema_mod
 
     return schema_mod.clip_property_capabilities()
+
+
+# ---------------------------------------------------------------------------
+# Color page
+# ---------------------------------------------------------------------------
+
+
+#: Clip-selection arguments shared by every color tool.
+_SELECTOR_PROPERTIES: dict[str, dict[str, Any]] = {
+    "timeline": {"type": "string"},
+    "track_type": {"type": "string", "enum": ["video", "audio", "subtitle"]},
+    "track_index": {"type": "integer"},
+    "name": {"type": "string"},
+    "name_contains": {"type": "string"},
+    "duration_lt": {"type": "integer"},
+    "duration_gt": {"type": "integer"},
+}
+
+
+def _color_schema(properties: dict[str, dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+    return _schema({**properties, **_SELECTOR_PROPERTIES}, **kwargs)
+
+
+def _selected_clips(ctx: _Context, args: dict[str, Any]) -> tuple[Any, list[Any]]:
+    """Resolve the clip selection, refusing to silently act on nothing."""
+    tl, items = _select_timeline_items(ctx, args)
+    if not items:
+        raise errors.ColorError(
+            "No timeline clips matched the selection.",
+            cause="Every clip was filtered out before the color operation ran.",
+            fix="Widen the filter, or call `clip_where` first to see what matches.",
+            state={
+                "timeline": tl.name,
+                "filters": {k: args[k] for k in _SELECTOR_PROPERTIES if k in args},
+            },
+        )
+    return tl, items
+
+
+def _rgb(values: Any, label: str) -> tuple[float, ...] | None:
+    if values is None:
+        return None
+    if not isinstance(values, (list, tuple)) or len(values) not in (3, 4):
+        raise errors.ColorError(
+            f"CDL {label} requires three RGB values.",
+            fix=f"Pass {label} as [r, g, b].",
+            state={label: values},
+        )
+    return tuple(float(v) for v in values)
+
+
+def _h_color_inspect(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl, items = _selected_clips(ctx, args)
+    layer = int(args.get("layer", 1))
+    clips: list[dict[str, Any]] = []
+    for item in items:
+        ops = item.color
+        entry: dict[str, Any] = {"clip": item.name, "track_index": item.track_index}
+        try:
+            entry["graph"] = ops.graph(layer).inspect()
+        except errors.DvrError as exc:
+            entry["graph"] = None
+            entry["graph_error"] = exc.message
+        entry["versions"] = ops.versions()
+        entry["current_version"] = ops.current_version()
+        group = ops.color_group()
+        entry["color_group"] = group.name if group else None
+        clips.append(entry)
+    return {"timeline": tl.name, "layer": layer, "clips": clips}
+
+
+def _h_color_set_cdl(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl, items = _selected_clips(ctx, args)
+    payload = {
+        "node_index": int(args.get("node_index", 1)),
+        "slope": _rgb(args.get("slope"), "slope"),
+        "offset": _rgb(args.get("offset"), "offset"),
+        "power": _rgb(args.get("power"), "power"),
+        "saturation": args.get("saturation"),
+    }
+    names = [it.name for it in items]
+    if args.get("dry_run"):
+        return {"dry_run": True, "timeline": tl.name, "clips": names, "cdl": payload}
+    for item in items:
+        item.color.set_cdl(**payload)
+    return {"timeline": tl.name, "updated": len(items), "clips": names, "cdl": payload}
+
+
+def _h_color_node_lut(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl, items = _selected_clips(ctx, args)
+    node_index = int(args.get("node_index", 1))
+    layer = int(args.get("layer", 1))
+    lut_path = args.get("lut_path")
+    if lut_path is None:
+        return {
+            "timeline": tl.name,
+            "node_index": node_index,
+            "clips": [
+                {"clip": it.name, "lut": it.color.graph(layer).get_lut(node_index)} for it in items
+            ],
+        }
+    names = [it.name for it in items]
+    if args.get("dry_run"):
+        return {
+            "dry_run": True,
+            "timeline": tl.name,
+            "node_index": node_index,
+            "lut_path": lut_path,
+            "clips": names,
+        }
+    for item in items:
+        item.color.graph(layer).set_lut(node_index, lut_path)
+    return {
+        "timeline": tl.name,
+        "node_index": node_index,
+        "lut_path": lut_path,
+        "updated": len(items),
+        "clips": names,
+    }
+
+
+def _h_color_export_lut(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    _tl, items = _selected_clips(ctx, args)
+    size: Any = args.get("size", 33)
+    if size != "vlt":
+        size = int(size)
+    item = items[0]
+    item.color.export_lut(args["file_path"], size=size)
+    return {"clip": item.name, "file_path": args["file_path"], "size": size}
+
+
+def _h_color_versions(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl, items = _selected_clips(ctx, args)
+    action = args.get("action", "list")
+    version_type = int(args.get("version_type", 0))
+    name = args.get("version_name")
+    clips: list[dict[str, Any]] = []
+    for item in items:
+        ops = item.color
+        if action == "list":
+            pass
+        elif action == "add":
+            ops.add_version(_require(name, "version_name", action), version_type=version_type)
+        elif action == "load":
+            ops.load_version(_require(name, "version_name", action), version_type=version_type)
+        elif action == "delete":
+            ops.delete_version(_require(name, "version_name", action), version_type=version_type)
+        elif action == "rename":
+            ops.rename_version(
+                _require(name, "version_name", action),
+                _require(args.get("new_name"), "new_name", action),
+                version_type=version_type,
+            )
+        else:
+            raise errors.ColorError(
+                f"Unknown color version action {action!r}.",
+                fix="Use list, add, load, delete, or rename.",
+            )
+        clips.append({"clip": item.name, "versions": ops.versions(version_type=version_type)})
+    return {"timeline": tl.name, "action": action, "clips": clips}
+
+
+def _require(value: Any, field_name: str, action: str) -> Any:
+    if value in (None, ""):
+        raise errors.ColorError(
+            f"`{field_name}` is required for the {action!r} action.",
+            fix=f"Pass {field_name} alongside action={action!r}.",
+        )
+    return value
+
+
+def _h_color_copy_grades(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl, items = _selected_clips(ctx, args)
+    source_name = args.get("source")
+    if source_name:
+        source = next((it for it in tl.items("video") if it.name == source_name), None)
+        if source is None:
+            raise errors.ColorError(
+                f"No clip named {source_name!r} on timeline {tl.name!r}.",
+                fix="Call `clip_where` to list clip names.",
+                state={"timeline": tl.name},
+            )
+    else:
+        source = items[0]
+    targets = [it for it in items if it.raw is not source.raw]
+    if not targets:
+        raise errors.ColorError(
+            "The grade source is the only matched clip, so there is nothing to copy to.",
+            fix="Widen the selection, or pass `source` to grade a different clip from it.",
+            state={"timeline": tl.name, "source": source.name},
+        )
+    if args.get("dry_run"):
+        return {
+            "dry_run": True,
+            "timeline": tl.name,
+            "source": source.name,
+            "targets": [t.name for t in targets],
+        }
+    source.color.copy_grades_to(targets)
+    return {
+        "timeline": tl.name,
+        "source": source.name,
+        "updated": len(targets),
+        "targets": [t.name for t in targets],
+    }
+
+
+def _h_color_reset(ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    tl, items = _selected_clips(ctx, args)
+    layer = int(args.get("layer", 1))
+    names = [it.name for it in items]
+    if args.get("dry_run"):
+        return {"dry_run": True, "timeline": tl.name, "clips": names}
+    for item in items:
+        item.color.graph(layer).reset_all()
+    return {"timeline": tl.name, "reset": len(items), "clips": names}
+
+
+# ---------------------------------------------------------------------------
+# LUT and DCTL files
+# ---------------------------------------------------------------------------
+
+
+def _h_dctl_list(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    return {"lut_root": str(luts.lut_root()), "files": luts.list_dctls(args.get("subdir"))}
+
+
+def _h_dctl_read(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    return {"path": args["path"], "content": luts.read_dctl(args["path"])}
+
+
+def _h_dctl_write(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    written = luts.write_dctl(
+        args["path"], args["content"], overwrite=bool(args.get("overwrite", False))
+    )
+    return {**written, "note": "Run `render_refresh_luts` to make it selectable in Resolve."}
+
+
+def _h_dctl_delete(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    return luts.delete_file(args["path"])
+
+
+def _h_lut_list(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    return {"lut_root": str(luts.lut_root()), "files": luts.list_luts(args.get("subdir"))}
+
+
+def _h_lut_generate(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    written = luts.generate_cube(
+        args["path"],
+        args["transform"],
+        size=int(args.get("size", 33)),
+        title=args.get("title"),
+        overwrite=bool(args.get("overwrite", False)),
+    )
+    return {**written, "note": "Run `render_refresh_luts` to make it selectable in Resolve."}
+
+
+def _h_lut_delete(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    return luts.delete_file(args["path"])
 
 
 def _h_render_queue(ctx: _Context, _args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1166,31 +1425,58 @@ def _h_schema(ctx: _Context, args: dict[str, Any]) -> Any:
     return schema_mod.get_topic(topic)
 
 
+def _enabled(variable: str) -> bool:
+    return os.environ.get(variable, "0").casefold() in ("1", "true", "yes")
+
+
+def _eval_namespace(ctx: _Context) -> dict[str, Any]:
+    import dvr as _dvr
+
+    r = ctx.resolve()
+    project = r.project.current
+    timeline = project.timeline.current if project else None
+    return {"r": r, "project": project, "timeline": timeline, "dvr": _dvr}
+
+
+def _unwrapped(value: Any) -> Any:
+    if hasattr(value, "inspect") and callable(value.inspect):
+        return value.inspect()
+    if hasattr(value, "to_dict") and callable(value.to_dict):
+        return value.to_dict()
+    return value
+
+
 def _h_eval(ctx: _Context, args: dict[str, Any]) -> Any:
-    if os.environ.get("DVR_MCP_ENABLE_EVAL", "0") not in ("1", "true", "yes"):
+    if not _enabled("DVR_MCP_ENABLE_EVAL"):
         raise errors.DvrError(
             "The `eval` tool is disabled by default.",
             cause=(
-                "Arbitrary Python execution is risky in agent contexts; "
-                "DVR_MCP_ENABLE_EVAL is not set."
+                "Evaluating expressions against a live Resolve can change the "
+                "project; DVR_MCP_ENABLE_EVAL is not set."
             ),
             fix=(
                 "Restart the MCP server with DVR_MCP_ENABLE_EVAL=1 in its environment "
                 "if you really want to enable eval."
             ),
         )
-    import dvr as _dvr
+    return _unwrapped(sandbox.restricted_eval(args["expression"], _eval_namespace(ctx)))
 
-    r = ctx.resolve()
-    project = r.project.current
-    timeline = project.timeline.current if project else None
-    ns = {"r": r, "project": project, "timeline": timeline, "dvr": _dvr}
-    value = eval(args["expression"], ns)
-    if hasattr(value, "inspect") and callable(value.inspect):
-        value = value.inspect()
-    elif hasattr(value, "to_dict") and callable(value.to_dict):
-        value = value.to_dict()
-    return value
+
+def _h_eval_unsafe(ctx: _Context, args: dict[str, Any]) -> Any:
+    if not _enabled("DVR_MCP_ENABLE_EVAL_UNSAFE"):
+        raise errors.DvrError(
+            "The `eval_unsafe` tool is disabled by default.",
+            cause=(
+                "This tier runs unrestricted Python: imports, filesystem, network "
+                "and subprocesses are all reachable. DVR_MCP_ENABLE_EVAL_UNSAFE is not set."
+            ),
+            fix=(
+                "Prefer `eval`, which blocks imports and dunder access. Only set "
+                "DVR_MCP_ENABLE_EVAL_UNSAFE=1 when the expression genuinely needs "
+                "host access, and never on a shared or unattended machine."
+            ),
+        )
+    return _unwrapped(eval(args["expression"], _eval_namespace(ctx)))
 
 
 # ---------------------------------------------------------------------------
@@ -1280,6 +1566,29 @@ def _build_registry() -> list[_ToolSpec]:
             name="snapshot_list",
             description="List snapshots on disk, newest first. Does not require Resolve.",
             handler=_h_snapshot_list,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="tool_search",
+            description=(
+                "Find dvr tools that are not listed under the current profile and return their "
+                "full input schemas. Every dvr tool is callable whether or not it appears in the "
+                "tool list, so search here before assuming something is unsupported. Covers "
+                "color grading, DCTL and LUT files, subtitles, titles and generators, audio "
+                "transcription, interchange export, snapshots, diffs and render plumbing. "
+                "Example queries: 'cdl grade', 'dctl', 'subtitles', 'aaf export'."
+            ),
+            schema=_schema(
+                {
+                    "query": {
+                        "type": "string",
+                        "description": "Keywords matched against tool names and descriptions.",
+                    },
+                    "limit": {"type": "integer", "default": 10},
+                },
+                required=["query"],
+            ),
+            handler=_h_tool_search,
             needs_resolve=False,
         ),
         # ---- live: app + project + timeline ----------------------------
@@ -1571,6 +1880,183 @@ def _build_registry() -> list[_ToolSpec]:
                 "transition/keyframe capabilities."
             ),
             handler=_h_clip_capabilities,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="color_inspect",
+            description=(
+                "Inspect the color state of selected clips: node graph (labels, tools, per-node "
+                "LUTs), grade versions, and color group membership."
+            ),
+            schema=_color_schema({"layer": {"type": "integer", "default": 1}}),
+            handler=_h_color_inspect,
+        ),
+        _ToolSpec(
+            name="color_set_cdl",
+            description=(
+                "Apply a CDL grade (slope/offset/power/saturation) to a node on every selected "
+                "clip. Slope, offset and power are RGB triples; Resolve has no master channel."
+            ),
+            schema=_color_schema(
+                {
+                    "node_index": {"type": "integer", "default": 1},
+                    "slope": {"type": "array", "items": {"type": "number"}},
+                    "offset": {"type": "array", "items": {"type": "number"}},
+                    "power": {"type": "array", "items": {"type": "number"}},
+                    "saturation": {"type": "number"},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_color_set_cdl,
+        ),
+        _ToolSpec(
+            name="color_node_lut",
+            description=(
+                "Read or set the LUT on a color node. Omit lut_path to read the current LUT of "
+                "every selected clip. Call `render_refresh_luts` first after adding LUT files."
+            ),
+            schema=_color_schema(
+                {
+                    "node_index": {"type": "integer", "default": 1},
+                    "layer": {"type": "integer", "default": 1},
+                    "lut_path": {"type": "string"},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_color_node_lut,
+        ),
+        _ToolSpec(
+            name="color_export_lut",
+            description=(
+                "Export the grade of the first selected clip as a LUT file. Size is 17, 33, 65, "
+                "or 'vlt' for Panasonic VLT."
+            ),
+            schema=_color_schema(
+                {
+                    "file_path": {"type": "string"},
+                    "size": {"type": ["integer", "string"], "default": 33},
+                },
+                required=["file_path"],
+            ),
+            handler=_h_color_export_lut,
+        ),
+        _ToolSpec(
+            name="color_versions",
+            description=(
+                "List, add, load, delete or rename grade versions on selected clips. "
+                "version_type 0 is local, 1 is remote."
+            ),
+            schema=_color_schema(
+                {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "add", "load", "delete", "rename"],
+                        "default": "list",
+                    },
+                    "version_name": {"type": "string"},
+                    "new_name": {"type": "string"},
+                    "version_type": {"type": "integer", "enum": [0, 1], "default": 0},
+                }
+            ),
+            handler=_h_color_versions,
+        ),
+        _ToolSpec(
+            name="color_copy_grades",
+            description=(
+                "Copy one clip's grade onto every other selected clip. Defaults to the first "
+                "match as the source; pass `source` to name it explicitly."
+            ),
+            schema=_color_schema(
+                {
+                    "source": {"type": "string"},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_color_copy_grades,
+        ),
+        _ToolSpec(
+            name="color_reset",
+            description="Reset every color node on the selected clips back to a neutral grade.",
+            schema=_color_schema(
+                {
+                    "layer": {"type": "integer", "default": 1},
+                    "dry_run": {"type": "boolean", "default": False},
+                }
+            ),
+            handler=_h_color_reset,
+        ),
+        _ToolSpec(
+            name="dctl_list",
+            description="List .dctl files in Resolve's LUT directory.",
+            schema=_schema({"subdir": {"type": "string"}}),
+            handler=_h_dctl_list,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="dctl_read",
+            description="Read the source of a .dctl file in Resolve's LUT directory.",
+            schema=_schema({"path": {"type": "string"}}, required=["path"]),
+            handler=_h_dctl_read,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="dctl_write",
+            description=(
+                "Write a .dctl file into Resolve's LUT directory. The source is validated before "
+                "it is written, so a malformed DCTL never lands on disk. Set overwrite=true to "
+                "replace an existing file."
+            ),
+            schema=_schema(
+                {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                    "overwrite": {"type": "boolean", "default": False},
+                },
+                required=["path", "content"],
+            ),
+            handler=_h_dctl_write,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="dctl_delete",
+            description="Delete a .dctl file from Resolve's LUT directory.",
+            schema=_schema({"path": {"type": "string"}}, required=["path"]),
+            handler=_h_dctl_delete,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="lut_list",
+            description="List LUT files (.cube, .3dl, .dat, .lut, .olut) in Resolve's LUT directory.",
+            schema=_schema({"subdir": {"type": "string"}}),
+            handler=_h_lut_list,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="lut_generate",
+            description=(
+                "Generate a .cube 3D LUT by evaluating a transform on every lattice point. "
+                "`transform` is a Python expression over r, g, b in [0,1] returning an (r, g, b) "
+                "tuple, e.g. '(r ** 0.8, g ** 0.8, b ** 0.8)'. Imports are not available. "
+                "Common sizes: 17, 33, 65."
+            ),
+            schema=_schema(
+                {
+                    "path": {"type": "string"},
+                    "transform": {"type": "string"},
+                    "size": {"type": "integer", "default": 33},
+                    "title": {"type": "string"},
+                    "overwrite": {"type": "boolean", "default": False},
+                },
+                required=["path", "transform"],
+            ),
+            handler=_h_lut_generate,
+            needs_resolve=False,
+        ),
+        _ToolSpec(
+            name="lut_delete",
+            description="Delete a LUT file from Resolve's LUT directory.",
+            schema=_schema({"path": {"type": "string"}}, required=["path"]),
+            handler=_h_lut_delete,
             needs_resolve=False,
         ),
         # ---- render ----------------------------------------------------
@@ -2253,10 +2739,24 @@ def _build_registry() -> list[_ToolSpec]:
             description=(
                 "Evaluate a Python expression with `r = Resolve()` already bound. "
                 "Disabled unless DVR_MCP_ENABLE_EVAL=1 is set in the server's env. "
-                "Only `r`, `project`, `timeline`, and `dvr` are in scope. No imports."
+                "Only `r`, `project`, `timeline`, and `dvr` are in scope. Imports and "
+                "dunder attribute access are blocked, so the host filesystem, network "
+                "and subprocesses are unreachable. The expression still runs against a "
+                "live Resolve and can change the project."
             ),
             schema=_schema({"expression": {"type": "string"}}, required=["expression"]),
             handler=_h_eval,
+        ),
+        _ToolSpec(
+            name="eval_unsafe",
+            description=(
+                "Evaluate an UNRESTRICTED Python expression with `r = Resolve()` bound. "
+                "Imports, filesystem, network and subprocesses are all reachable. "
+                "Disabled unless DVR_MCP_ENABLE_EVAL_UNSAFE=1 is set in the server's env. "
+                "Never use this when `eval` can do the job."
+            ),
+            schema=_schema({"expression": {"type": "string"}}, required=["expression"]),
+            handler=_h_eval_unsafe,
         ),
     ]
 
@@ -2399,6 +2899,122 @@ def _dispatch(
     return _ok(value)
 
 
+#: Tools listed under the default ``core`` profile. Everything else stays
+#: callable and is discoverable through ``tool_search``; it just does not
+#: occupy context in every request. Keep this list to the operations a
+#: session actually reaches for first.
+CORE_TOOLS: frozenset[str] = frozenset(
+    {
+        # connection and orientation
+        "version",
+        "doctor",
+        "reconnect",
+        "ping",
+        "inspect",
+        "schema",
+        "tool_search",
+        # project
+        "project_list",
+        "project_ensure",
+        "project_current",
+        "project_settings_get",
+        "project_save",
+        # timeline
+        "timeline_list",
+        "timeline_inspect",
+        "timeline_ensure",
+        "timeline_switch",
+        "timeline_append",
+        "marker_add",
+        # clips
+        "clip_where",
+        "clip_set_properties",
+        # media
+        "media_inspect",
+        "media_bins",
+        "media_ls",
+        "media_import",
+        # color
+        "color_inspect",
+        "color_set_cdl",
+        # render
+        "render_presets",
+        "render_submit",
+        "render_status",
+        "render_wait",
+        "render_queue",
+        # declarative layer
+        "lint",
+        "apply_spec",
+        "spec_export",
+        "snapshot_save",
+        "diff_timelines",
+    }
+)
+
+_PROFILES = ("core", "full")
+
+
+def active_profile() -> str:
+    """Return the configured tool profile.
+
+    ``DVR_MCP_PROFILE=full`` lists every tool up front, which is what older
+    releases did. The default ``core`` lists a working subset and leaves the
+    rest to ``tool_search``, so a session does not pay for 90-odd schemas it
+    will never call.
+    """
+    value = os.environ.get("DVR_MCP_PROFILE", "core").strip().casefold()
+    return value if value in _PROFILES else "core"
+
+
+def profiled_specs(specs: list[_ToolSpec]) -> list[_ToolSpec]:
+    """Filter ``specs`` down to the active profile."""
+    if active_profile() == "full":
+        return specs
+    return [s for s in specs if s.name in CORE_TOOLS]
+
+
+def _h_tool_search(_ctx: _Context, args: dict[str, Any]) -> dict[str, Any]:
+    query = str(args.get("query", "")).strip().casefold()
+    terms = [t for t in query.replace(",", " ").split() if t]
+    specs = _build_registry()
+    listed = {s.name for s in profiled_specs(specs)}
+
+    def score(spec: _ToolSpec) -> int:
+        if not terms:
+            return 1
+        haystack = f"{spec.name} {spec.description}".casefold()
+        hits = sum(1 for t in terms if t in haystack)
+        # Prefer name matches; they are almost always what was meant.
+        return hits * 2 + sum(1 for t in terms if t in spec.name.casefold())
+
+    ranked = sorted(
+        ((score(s), s) for s in specs if s.name != "tool_search" and score(s) > 0),
+        key=lambda pair: -pair[0],
+    )
+    limit = int(args.get("limit", 10))
+    matches = [
+        {
+            "name": s.name,
+            "description": s.description,
+            "input_schema": s.schema,
+            "needs_resolve": s.needs_resolve,
+            "already_listed": s.name in listed,
+        }
+        for _, s in ranked[:limit]
+    ]
+    return {
+        "profile": active_profile(),
+        "listed_tools": len(listed),
+        "total_tools": len(specs),
+        "matches": matches,
+        "note": (
+            "Every tool is callable whether or not it is listed. Call a match by "
+            "name with the arguments in its input_schema."
+        ),
+    }
+
+
 def list_tool_specs() -> list[_ToolSpec]:
     """Return the registry as a list. Public so tests / CLI can introspect."""
     return _build_registry()
@@ -2426,8 +3042,20 @@ def build_server(*, auto_launch: bool = True, timeout: float = 30.0) -> Server[A
     """Construct an MCP Server with all `dvr` tools and resources registered."""
     cache = _ResolveCache(auto_launch=auto_launch, timeout=timeout)
     specs = _build_registry()
+    # Dispatch knows every tool; the listing is narrowed to the active profile
+    # so a session does not pay for schemas it will never call. Unlisted tools
+    # stay callable and are discoverable through `tool_search`.
     registry = {s.name: s for s in specs}
-    tools = [Tool(name=s.name, description=s.description, input_schema=s.schema) for s in specs]
+    tools = [
+        Tool(name=s.name, description=s.description, input_schema=s.schema)
+        for s in profiled_specs(specs)
+    ]
+    logger.info(
+        "dvr MCP profile=%s listing %d of %d tools",
+        active_profile(),
+        len(tools),
+        len(specs),
+    )
 
     resource_specs = _build_resource_registry()
     resource_registry = {r.uri: r for r in resource_specs}
