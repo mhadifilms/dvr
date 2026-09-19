@@ -177,3 +177,33 @@ def test_delete_refuses_unrelated_files(lut_root):
     with pytest.raises(errors.DvrError, match="not a LUT or DCTL"):
         luts.delete_file("notes.txt")
     assert (lut_root / "notes.txt").exists()
+
+
+# --- path shape ------------------------------------------------------------
+#
+# Returned paths are handed to agents and fed straight back into the write and
+# delete calls, so they must look identical on every platform. Windows would
+# otherwise report "show\look.cube" where macOS reports "show/look.cube".
+
+
+def test_returned_paths_always_use_forward_slashes():
+    listed = luts.generate_cube("show/day/look.cube", "(r, g, b)", size=2)
+    written = luts.write_dctl("show/day/tool.dctl", _DCTL)
+    assert listed["path"] == "show/day/look.cube"
+    assert written["path"] == "show/day/tool.dctl"
+    assert [f["path"] for f in luts.list_luts()] == ["show/day/look.cube"]
+    assert [f["path"] for f in luts.list_dctls()] == ["show/day/tool.dctl"]
+    assert "\\" not in listed["path"]
+
+
+def test_returned_paths_round_trip():
+    """Whatever a listing reports must be usable as an argument."""
+    luts.generate_cube("show/day/look.cube", "(r, g, b)", size=2)
+    reported = luts.list_luts()[0]["path"]
+    assert luts.resolve_path(reported, must_exist=True).is_file()
+    assert luts.delete_file(reported) == {"deleted": reported}
+
+
+def test_subdir_listing_reports_paths_from_the_root():
+    luts.generate_cube("show/day/look.cube", "(r, g, b)", size=2)
+    assert luts.list_luts("show")[0]["path"] == "show/day/look.cube"

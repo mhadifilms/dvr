@@ -85,6 +85,16 @@ def resolve_path(path: str, *, must_exist: bool = False) -> Path:
     return final
 
 
+def relative_to_root(path: Path) -> str:
+    """Return ``path`` relative to the LUT root, always with forward slashes.
+
+    These strings are handed to agents and fed back into :func:`resolve_path`,
+    so they must look the same on every platform. Windows accepts forward
+    slashes, so a POSIX-style relative path round-trips everywhere.
+    """
+    return path.relative_to(lut_root()).as_posix()
+
+
 def _listing(suffixes: tuple[str, ...], subdir: str | None) -> list[dict[str, Any]]:
     root = lut_root()
     base = resolve_path(subdir) if subdir else root
@@ -93,7 +103,7 @@ def _listing(suffixes: tuple[str, ...], subdir: str | None) -> list[dict[str, An
     found = [p for p in sorted(base.rglob("*")) if p.is_file() and p.suffix.casefold() in suffixes]
     return [
         {
-            "path": str(p.relative_to(root)),
+            "path": relative_to_root(p),
             "name": p.name,
             "bytes": p.stat().st_size,
         }
@@ -164,7 +174,7 @@ def write_dctl(path: str, content: str, *, overwrite: bool = False) -> dict[str,
         )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
-    return {"path": str(target.relative_to(lut_root())), "bytes": target.stat().st_size}
+    return {"path": relative_to_root(target), "bytes": target.stat().st_size}
 
 
 def delete_file(path: str) -> dict[str, Any]:
@@ -175,7 +185,7 @@ def delete_file(path: str) -> dict[str, Any]:
             f"Refusing to delete {path!r}: not a LUT or DCTL file.",
             state={"suffix": target.suffix},
         )
-    relative = str(target.relative_to(lut_root()))
+    relative = relative_to_root(target)
     target.unlink()
     return {"deleted": relative}
 
@@ -229,7 +239,7 @@ def generate_cube(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return {
-        "path": str(target.relative_to(lut_root())),
+        "path": relative_to_root(target),
         "size": size,
         "points": size**3,
         "bytes": target.stat().st_size,
@@ -265,6 +275,7 @@ __all__ = [
     "list_luts",
     "lut_root",
     "read_dctl",
+    "relative_to_root",
     "resolve_path",
     "validate_dctl",
     "write_dctl",
