@@ -1,8 +1,10 @@
 """Resolve Auto Caption settings, as documented by the installed scripting API.
 
 The native keys and enum values are numeric constants, not UI label strings.
-Values below were verified against Resolve 21.0.4. As with clip-property enums,
-keep the values explicit so constructing a payload does not open a connection.
+Values below were verified against Resolve 21.1 by reading the live
+``resolve.AUTO_CAPTION_*`` constants; ``scripts/check_api_truth.py`` re-checks
+them against a running Resolve so this table cannot silently drift. Keep the
+values explicit so constructing a payload does not open a connection.
 """
 
 from __future__ import annotations
@@ -14,33 +16,53 @@ _LANGUAGES = {
     "mandarinsimplified": 1,
     "dutch": 2,
     "english": 3,
+    "finnish": 4,
     "french": 5,
     "german": 6,
+    "hindi": 7,
+    "indonesian": 8,
     "italian": 9,
     "japanese": 10,
     "korean": 11,
+    "malay": 12,
     "norwegian": 13,
+    "polish": 14,
     "portuguese": 15,
+    "romanian": 16,
     "russian": 17,
     "spanish": 18,
     "swedish": 19,
+    "turkish": 20,
+    "vietnamese": 21,
+    "tamil": 22,
+    "thai": 23,
     "danish": 24,
     "mandarintraditional": 25,
 }
 _LANGUAGE_CODES = {
     "da": "danish",
-    "nl": "dutch",
-    "en": "english",
-    "fr": "french",
     "de": "german",
+    "en": "english",
+    "es": "spanish",
+    "fi": "finnish",
+    "fr": "french",
+    "hi": "hindi",
+    "id": "indonesian",
     "it": "italian",
     "ja": "japanese",
     "ko": "korean",
+    "ms": "malay",
+    "nl": "dutch",
     "no": "norwegian",
+    "pl": "polish",
     "pt": "portuguese",
+    "ro": "romanian",
     "ru": "russian",
-    "es": "spanish",
     "sv": "swedish",
+    "ta": "tamil",
+    "th": "thai",
+    "tr": "turkish",
+    "vi": "vietnamese",
     "zhhans": "mandarinsimplified",
     "zhhant": "mandarintraditional",
 }

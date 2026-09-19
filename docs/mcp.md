@@ -64,7 +64,34 @@ dvr mcp tools           # one-line summaries
 dvr mcp tools --detail  # full descriptions and JSON schemas
 ```
 
+## Tool profiles and `tool_search`
+
+`dvr` ships more than ninety tools. Listing all of them costs roughly 9,000
+tokens of context in *every* request, most of it schemas for tools a given
+session never calls.
+
+By default the server lists a `core` profile — the operations a session
+reaches for first — and leaves the rest to `tool_search`:
+
+| Profile | Tools listed | Tool-list payload |
+|---------|--------------|-------------------|
+| `core` (default) | 36 | ~13 KB |
+| `full` | 94 | ~38 KB |
+
+**Every tool stays callable regardless of profile.** Narrowing the listing
+narrows what the agent sees up front, never what the server can do. An agent
+that needs something unlisted calls `tool_search` and gets the full schema
+back, then calls the tool by name:
+
+```json
+{"name": "tool_search", "arguments": {"query": "dctl"}}
+```
+
+Set `DVR_MCP_PROFILE=full` to restore the pre-1.7 behavior of listing
+everything up front.
+
 ## Available tools
+
 
 ### Setup and diagnostics (no Resolve required)
 
@@ -97,6 +124,16 @@ dvr mcp tools --detail  # full descriptions and JSON schemas
 | `media_scan` | Scan a filesystem folder for importable video/audio files, skipping hidden AppleDouble files by default. |
 | `media_bin_ensure` / `media_bin_delete` / `media_move` | Create/delete nested bins and move media-pool clips without breaking timelines. Slash paths like `Picture/Plates` are accepted consistently. |
 | `timeline_assemble` | **Workflow tool:** ensure a timeline, import media by path, and append every item in order — a rough cut in one call. |
+| `color_inspect` | Node graph (labels, tools, per-node LUTs), grade versions, and color group for filtered clips. |
+| `color_set_cdl` | Apply slope / offset / power / saturation to a node across a clip selection. |
+| `color_node_lut` | Read or set the LUT on a color node. |
+| `color_export_lut` | Export a clip's grade as a LUT (17 / 33 / 65 / `vlt`). |
+| `color_versions` | List / add / load / delete / rename grade versions. |
+| `color_copy_grades` | Copy one clip's grade onto the rest of a selection. |
+| `color_reset` | Reset every color node on a selection. |
+| `dctl_list` / `dctl_read` / `dctl_write` / `dctl_delete` | Manage `.dctl` files in Resolve's LUT directory. Source is validated before it is written. |
+| `lut_list` / `lut_generate` / `lut_delete` | Manage LUT files, including generating a `.cube` from a transform expression. |
+| `tool_search` | Find tools not listed under the current profile and return their schemas. |
 | `render_queue` / `render_presets` / `render_formats` / `render_codecs` | Render config. |
 | `render_submit` / `render_status` / `render_stop` / `render_clear` | Render control. |
 | `render_wait` | Block until a job finishes (or fails / times out) and return its final status — prefer this over polling `render_status`. |
@@ -106,7 +143,8 @@ dvr mcp tools --detail  # full descriptions and JSON schemas
 | `spec_export` | Build a spec from live project state — adopt an existing project into spec-managed workflows. |
 | `snapshot_save` / `snapshot_restore` | Capture/restore project state. |
 | `lint` | Pre-flight validation. |
-| `eval` | Power-user Python eval. **Disabled** unless `DVR_MCP_ENABLE_EVAL=1`. |
+| `eval` | Restricted Python eval — no imports, no dunder access. **Disabled** unless `DVR_MCP_ENABLE_EVAL=1`. |
+| `eval_unsafe` | Unrestricted Python eval, including host access. **Disabled** unless `DVR_MCP_ENABLE_EVAL_UNSAFE=1`. |
 
 Each tool has an explicit JSON schema, so agents see exactly what arguments are accepted before they call.
 
@@ -156,14 +194,36 @@ The MCP server connects to Resolve lazily on the first tool call that needs it, 
 
 If Resolve was relaunched or external scripting was just enabled, call `reconnect` to drop the stale handle.
 
-## The `eval` escape hatch
+## The `eval` escape hatches
 
-The `eval` tool runs an arbitrary Python expression with `r = Resolve()`, `project`, `timeline`, and `dvr` already bound. It is **off by default** because it bypasses every typed boundary. Enable it with:
+Two tiers, gated separately, both off by default.
+
+`eval` runs a Python expression with `r = Resolve()`, `project`, `timeline`
+and `dvr` bound. Imports and dunder attribute access are blocked, so the
+expression cannot reach the filesystem, network, or subprocesses. It still
+runs against a live Resolve, so it can change the project — the boundary is
+against the host, not against Resolve.
 
 ```bash
-dvr mcp install-claude --enable-eval     # set DVR_MCP_ENABLE_EVAL=1 in the server env
-# or, manually, run with: DVR_MCP_ENABLE_EVAL=1 dvr mcp serve
+dvr mcp install-claude --enable-eval     # sets DVR_MCP_ENABLE_EVAL=1
+# or: DVR_MCP_ENABLE_EVAL=1 dvr mcp serve
 ```
+
+`eval_unsafe` runs unrestricted Python, with imports, filesystem, network and
+subprocesses all reachable. Use it only when the expression genuinely needs
+host access, and never on a shared or unattended machine:
+
+```bash
+DVR_MCP_ENABLE_EVAL_UNSAFE=1 dvr mcp serve
+```
+
+!!! warning "Changed in 1.7.0"
+
+    Before 1.7.0, `eval` described itself as allowing "No imports" while in
+    fact passing a plain dictionary to Python's `eval`, into which CPython
+    injects the full builtins — so `__import__('subprocess')` worked. The
+    restriction is now real, and the unrestricted behavior moved to the
+    separately gated `eval_unsafe`.
 
 ## Designing prompts that work well
 

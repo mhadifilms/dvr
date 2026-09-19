@@ -6,16 +6,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-19
+
 ### Fixed
 
-- Translate subtitle language, line-break, and caption-preset names into Resolve's
-  numeric Auto Caption settings. Validate unsupported names and character limits
-  before invoking transcription. `Auto` keeps the preset's line-break default.
+- **All 26 of Resolve's caption languages are now reachable.** The
+  hand-written Auto Caption table held only 16 of them, omitting Finnish,
+  Hindi, Indonesian, Malay, Polish, Romanian, Turkish, Vietnamese, Tamil
+  and Thai, so
+  `create_subtitles_from_audio` raised `TimelineError` for languages the
+  application handles. All 26 values were read back from a live Resolve 21.1
+  and now match.
+
+- **The `eval` MCP tool no longer overstates its containment.** It advertised
+  "No imports" while passing a plain dictionary to Python's `eval`; CPython
+  injects the full builtins into any globals mapping that lacks
+  `__builtins__`, so `__import__('subprocess')` was reachable. `eval` now runs
+  through `dvr.sandbox.restricted_eval`, which supplies an explicit builtins
+  allowlist and rejects dunder attribute access. Unrestricted evaluation moved
+  to `eval_unsafe`, gated separately by `DVR_MCP_ENABLE_EVAL_UNSAFE=1`.
+
+- `ColorOps.export_lut` was annotated `size: int` although it documents and
+  handles `size="vlt"`. The annotation now matches the behavior.
+
+- Translate subtitle language, line-break, and caption-preset names into
+  Resolve's numeric Auto Caption settings. Validate unsupported names and
+  character limits before invoking transcription. `Auto` keeps the preset's
+  line-break default.
 
 - Serialize CDL slope, offset, and power as the space-separated RGB triples
   required by Resolve. Comma-separated four-channel values were rejected by the
   live application. Legacy four-tuples remain accepted when their master value
   is neutral; unsupported master adjustments now produce an actionable error.
+
+### Added
+
+- **Color page on the CLI and MCP.** `dvr/color.py` had covered CDL, node
+  LUTs, grade versions and color groups since 1.2, but none of it was
+  reachable except from Python. New `dvr color` command group (`inspect`,
+  `cdl`, `lut get|set|export`, `version ls|add|load|delete`, `copy`, `reset`,
+  `group`) and seven matching MCP tools, all using the same `--where` /
+  `track_type` clip selection as `dvr clip`, and all honoring `--dry-run`.
+
+- **LUT and DCTL file management** (`dvr.luts`, `dvr lut`, `dvr dctl`, and six
+  MCP tools). Lists, reads, writes and deletes files in Resolve's LUT
+  directory, generates a `.cube` 3D LUT by evaluating a transform expression
+  per lattice point, and validates DCTL source before writing it. Paths are
+  contained inside the LUT root; traversal is refused. `DVR_LUT_DIR` overrides
+  the platform default.
+
+- **`scripts/check_api_truth.py`** verifies every hand-coded enum table against
+  a running Resolve, in both directions: values `dvr` hard-codes must match the
+  live constants, and constants the application exposes must be present in the
+  table. The caption bug above is exactly what it catches. Run it before
+  tagging a release.
+
+### Changed
+
+- **The MCP server now lists a `core` profile by default** — 36 tools instead
+  of 94, cutting the tool-list payload from roughly 38 KB to 13 KB in every
+  request. Every tool remains callable; the new `tool_search` tool returns
+  full schemas for anything not listed. Set `DVR_MCP_PROFILE=full` to restore
+  the previous behavior of listing everything up front.
+
+- `dvr eval` on the CLI now evaluates in the restricted scope by default.
+  Pass `--unsafe` for the previous unrestricted behavior. `dvr exec` and
+  `dvr repl` are unchanged.
 
 ## [1.6.1] - 2026-08-06
 

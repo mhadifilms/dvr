@@ -21,9 +21,11 @@ from ..resolve import Resolve
 from . import output
 from .commands import apply as apply_cmd
 from .commands import clip as clip_cmd
+from .commands import color as color_cmd
 from .commands import completion as completion_cmd
 from .commands import diff as diff_cmd
 from .commands import lint as lint_cmd
+from .commands import lut as lut_cmd
 from .commands import mcp as mcp_cmd
 from .commands import media as media_cmd
 from .commands import project as project_cmd
@@ -171,8 +173,11 @@ def doctor_cmd(
 app.add_typer(project_cmd.app, name="project")
 app.add_typer(timeline_cmd.app, name="timeline")
 app.add_typer(clip_cmd.app, name="clip")
+app.add_typer(color_cmd.app, name="color")
 app.add_typer(media_cmd.app, name="media")
 app.add_typer(render_cmd.app, name="render")
+app.add_typer(lut_cmd.app, name="lut")
+app.add_typer(lut_cmd.dctl_app, name="dctl")
 app.add_typer(diff_cmd.app, name="diff")
 app.add_typer(snapshot_cmd.app, name="snapshot")
 app.add_typer(spec_cmd.app, name="spec")
