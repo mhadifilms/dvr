@@ -36,6 +36,18 @@ project.set_setting(key, value)
 
 Within a timeline:
 
+Switching with `project.timeline.set_current()` or `project.timeline.use()` saves
+the current project first. Project switches and operations that implicitly select
+a new timeline (create, import, duplicate) do the same. A failed save blocks the
+switch and raises, including when a context manager restores the previous timeline.
+Construct wrappers through `Resolve` so they retain the project-manager handle.
+
+For existing Fusion titles, activate the containing timeline before editing,
+save while it is active, then switch away and reacquire the composition to verify
+the text. A read from the same tool handle only confirms in-memory state. For
+delivery slates, verify persistence after a saved project close/reopen before
+rendering; preserve the existing title text and sizing when rebuilding an edit.
+
 ```python
 tl = r.timeline.current
 tl.tracks("video")         # all video tracks

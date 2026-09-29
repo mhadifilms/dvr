@@ -426,7 +426,7 @@ class Resolve:
     @property
     def storage(self) -> MediaStorage:
         """Filesystem-side media access (volumes, file listings, bulk import)."""
-        from .media import MediaPool, MediaStorage
+        from .media import MediaStorage
 
         current = self.project.current
         if current is None:
@@ -434,8 +434,7 @@ class Resolve:
                 "No project is currently loaded.",
                 fix="Load or create a project first.",
             )
-        pool_raw = current.raw.GetMediaPool()
-        return MediaStorage(self._raw.GetMediaStorage(), MediaPool(pool_raw, current.raw))
+        return MediaStorage(self._raw.GetMediaStorage(), current.media)
 
     # --- top-level inspect ------------------------------------------------
 

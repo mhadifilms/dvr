@@ -71,7 +71,7 @@ def _make_clip(name: str, **kw) -> MockNode:
 def test_timeline_duplicate_with_name():
     new_raw = MockNode("DupTL", {"GetName": "MyTL_2"})
     raw = MockNode("TL", {"GetName": "MyTL", "DuplicateTimeline": new_raw})
-    tl = Timeline(raw, project=MockNode("Project"))
+    tl = Timeline(raw, project=MockNode("Project"), manager=MockNode("PM", {"SaveProject": True}))
     dup = tl.duplicate("MyTL_2")
     assert isinstance(dup, Timeline)
     assert dup.name == "MyTL_2"
@@ -82,7 +82,7 @@ def test_timeline_duplicate_with_name():
 def test_timeline_duplicate_no_name():
     new_raw = MockNode("DupTL", {"GetName": "MyTL 1"})
     raw = MockNode("TL", {"GetName": "MyTL", "DuplicateTimeline": new_raw})
-    tl = Timeline(raw, project=MockNode("Project"))
+    tl = Timeline(raw, project=MockNode("Project"), manager=MockNode("PM", {"SaveProject": True}))
     dup = tl.duplicate()
     assert dup.name == "MyTL 1"
     assert ("DuplicateTimeline", (), {}) in raw.calls
@@ -90,7 +90,7 @@ def test_timeline_duplicate_no_name():
 
 def test_timeline_duplicate_failure():
     raw = MockNode("TL", {"GetName": "MyTL", "DuplicateTimeline": None})
-    tl = Timeline(raw, project=MockNode("Project"))
+    tl = Timeline(raw, project=MockNode("Project"), manager=MockNode("PM", {"SaveProject": True}))
     with pytest.raises(errors.TimelineError):
         tl.duplicate("X")
 

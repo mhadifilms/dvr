@@ -891,13 +891,19 @@ class MediaStorage:
 class MediaPool:
     """The project-scoped media pool."""
 
-    def __init__(self, raw: Any, resolve_raw: Any) -> None:
+    def __init__(self, raw: Any, resolve_raw: Any, *, manager: Any = None) -> None:
+        self._manager = manager
         self._raw = raw
         self._resolve = resolve_raw
 
     @property
     def raw(self) -> Any:
         return self._raw
+
+    def _save_before_timeline_change(self) -> None:
+        from .project import Project
+
+        Project(self._resolve, self._manager).save()
 
     # --- folders --------------------------------------------------------
 
@@ -1338,6 +1344,7 @@ class MediaPool:
         from .timeline import Timeline
 
         opts = options or {"timelineName": Path(file_path).stem, "importSourceClips": True}
+        self._save_before_timeline_change()
         raw = self._raw.ImportTimelineFromFile(file_path, opts)
         if raw is None:
             raise errors.InterchangeError(
@@ -1346,13 +1353,14 @@ class MediaPool:
                 fix="Confirm the file is a valid AAF/EDL/XML/FCPXML/DRT/OTIO/ADL.",
                 state={"file_path": file_path, "options": opts},
             )
-        return Timeline(raw, self._raw.GetCurrentFolder())
+        return Timeline(raw, self._resolve, manager=self._manager)
 
     # --- timelines from clips ------------------------------------------
 
     def create_empty_timeline(self, name: str) -> Timeline:
         from .timeline import Timeline
 
+        self._save_before_timeline_change()
         raw = self._raw.CreateEmptyTimeline(name)
         if raw is None:
             raise errors.MediaError(
@@ -1360,7 +1368,7 @@ class MediaPool:
                 cause="CreateEmptyTimeline returned None — name may collide.",
                 state={"name": name},
             )
-        return Timeline(raw, self._raw.GetCurrentFolder())
+        return Timeline(raw, self._resolve, manager=self._manager)
 
     def create_timeline_from_clips(
         self,
@@ -1370,6 +1378,7 @@ class MediaPool:
         from .timeline import Timeline
 
         raws = [c.raw for c in clips]
+        self._save_before_timeline_change()
         raw = self._raw.CreateTimelineFromClips(name, raws)
         if raw is None:
             raise errors.MediaError(
@@ -1377,7 +1386,7 @@ class MediaPool:
                 cause="CreateTimelineFromClips returned None.",
                 state={"name": name, "clip_count": len(raws)},
             )
-        return Timeline(raw, self._raw.GetCurrentFolder())
+        return Timeline(raw, self._resolve, manager=self._manager)
 
     # Legacy alias (older name when this method took ``Asset`` objects).
     def create_timeline_from_assets(

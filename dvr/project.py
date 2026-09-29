@@ -374,6 +374,11 @@ class Project:
     # --- save / close -----------------------------------------------------
 
     def save(self) -> None:
+        if self._manager is None:
+            raise errors.ProjectError(
+                "Cannot save without a project-manager handle.",
+                fix="Obtain the project through Resolve.project.current.",
+            )
         if not self._manager.SaveProject():
             raise errors.ProjectError(
                 f"Failed to save project {self.name!r}.",
@@ -383,6 +388,7 @@ class Project:
             )
 
     def close(self) -> None:
+        self.save()
         if not self._manager.CloseProject(self._raw):
             raise errors.ProjectError(
                 f"Failed to close project {self.name!r}.",
@@ -450,7 +456,7 @@ class Project:
                 cause="GetMediaPool() returned None.",
                 state={"project": self.name},
             )
-        return MediaPool(raw, self._raw)
+        return MediaPool(raw, self._raw, manager=self._manager)
 
     @property
     def media_pool(self) -> Any:
@@ -533,6 +539,8 @@ class ProjectNamespace:
     # --- mutate -----------------------------------------------------------
 
     def create(self, name: str) -> Project:
+        if current := self.current:
+            current.save()
         raw = self._manager.CreateProject(name)
         if raw is None:
             raise errors.ProjectError(
@@ -551,6 +559,8 @@ class ProjectNamespace:
         current = self._manager.GetCurrentProject()
         if current is not None and current.GetName() == name:
             return Project(current, self._manager)
+        if current is not None:
+            Project(current, self._manager).save()
         raw = self._manager.LoadProject(name)
         if raw is None:
             folder_listing = self.list()
@@ -738,6 +748,8 @@ class ProjectNamespace:
             feature="DaVinci Cloud projects",
             error=errors.ProjectError,
         )
+        if current := self.current:
+            current.save()
         raw = create(settings)
         if raw is None:
             raise errors.ProjectError(
@@ -787,11 +799,7 @@ class ProjectNamespace:
             yield project
         finally:
             if previous_name and previous_name != name:
-                # Best-effort restore; don't mask exceptions from the body.
-                try:
-                    self.load(previous_name)
-                except errors.DvrError as exc:
-                    logger.warning("could not restore previous project %r: %s", previous_name, exc)
+                self.load(previous_name)
 
 
 def _guess_drp_name(path: str) -> str:
