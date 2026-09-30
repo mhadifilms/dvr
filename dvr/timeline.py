@@ -26,7 +26,6 @@ called it ``Clip``; ``Clip`` now refers to media-pool items
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` method shadow
@@ -37,8 +36,6 @@ from ._wrap import require, requires_method
 if TYPE_CHECKING:
     from .color import ColorOps
     from .media import Clip as MediaClip
-
-logger = logging.getLogger("dvr.timeline")
 
 
 # ---------------------------------------------------------------------------
@@ -1530,7 +1527,8 @@ class MarkerCollection:
 class Timeline:
     """A single timeline within a project."""
 
-    def __init__(self, raw: Any, project: Any) -> None:
+    def __init__(self, raw: Any, project: Any, *, manager: Any = None) -> None:
+        self._manager = manager
         self._raw = raw
         self._project_raw = project
 
@@ -1736,6 +1734,9 @@ class Timeline:
         ``"<original> 1"``). Resolve switches the current timeline to the
         new copy.
         """
+        from .project import Project
+
+        Project(self._project_raw, self._manager).save()
         raw = (
             self._raw.DuplicateTimeline(name) if name is not None else self._raw.DuplicateTimeline()
         )
@@ -1745,7 +1746,7 @@ class Timeline:
                 cause="DuplicateTimeline returned None — name may already exist.",
                 state={"source": self.name, "requested": name},
             )
-        return Timeline(raw, self._project_raw)
+        return Timeline(raw, self._project_raw, manager=self._manager)
 
     def delete(self, items: Iterable[TimelineItem], *, ripple: bool = False) -> None:
         """Batch-delete timeline items. Convenience for :meth:`delete_clips`."""
@@ -2322,12 +2323,12 @@ class TimelineNamespace:
     @property
     def current(self) -> Timeline | None:
         raw = self._raw.GetCurrentTimeline()
-        return Timeline(raw, self._raw) if raw is not None else None
+        return Timeline(raw, self._raw, manager=self._project._manager) if raw is not None else None
 
     def list(self) -> List[Timeline]:  # noqa: UP006
         count = self._raw.GetTimelineCount()
         return [
-            Timeline(self._raw.GetTimelineByIndex(i), self._raw)
+            Timeline(self._raw.GetTimelineByIndex(i), self._raw, manager=self._project._manager)
             for i in range(1, count + 1)
             if self._raw.GetTimelineByIndex(i) is not None
         ]
@@ -2373,6 +2374,7 @@ class TimelineNamespace:
             message="Could not get the project's media pool.",
             cause="GetMediaPool() returned None.",
         )
+        self._project.save()
         raw = media_pool.CreateEmptyTimeline(name)
         if raw is None:
             raise errors.TimelineError(
@@ -2381,7 +2383,7 @@ class TimelineNamespace:
                 fix=f"Use `resolve.timeline.ensure({name!r})` for get-or-create.",
                 state={"requested": name, "existing": self.names()},
             )
-        return Timeline(raw, self._raw)
+        return Timeline(raw, self._raw, manager=self._project._manager)
 
     def ensure(self, name: str) -> Timeline:
         if name in self.names():
@@ -2390,6 +2392,14 @@ class TimelineNamespace:
 
     def set_current(self, timeline: Timeline | str) -> Timeline:
         target = timeline if isinstance(timeline, Timeline) else self.get(timeline)
+        current = self.current
+        if (
+            current is not None
+            and current.raw.GetUniqueId()
+            and current.raw.GetUniqueId() == target.raw.GetUniqueId()
+        ):
+            return target
+        self._project.save()
         if not self._raw.SetCurrentTimeline(target.raw):
             raise errors.TimelineError(
                 f"Could not set current timeline to {target.name!r}.",
@@ -2406,10 +2416,7 @@ class TimelineNamespace:
             yield target
         finally:
             if previous is not None and previous.name != name:
-                try:
-                    self.set_current(previous)
-                except errors.DvrError as exc:
-                    logger.warning("could not restore previous timeline %r: %s", previous.name, exc)
+                self.set_current(previous)
 
     def delete(self, timelines: Timeline | str | Iterable[Timeline | str]) -> None:
         media_pool = self._raw.GetMediaPool()

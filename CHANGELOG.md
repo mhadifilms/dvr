@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Save the current project before timeline/project switches, including timeline
+  creation, import, duplication, project creation and close. A failed save blocks
+  the operation, including context-manager restoration. Raw-only wrappers without
+  a project-manager handle now refuse these operations instead of risking edits.
+
 ## [1.7.0] - 2026-09-19
 
 ### Fixed
