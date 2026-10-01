@@ -26,6 +26,7 @@ called it ``Clip``; ``Clip`` now refers to media-pool items
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, List  # noqa: UP035 — `List` avoids `list` method shadow
@@ -44,6 +45,14 @@ if TYPE_CHECKING:
 
 
 _TRACK_TYPES = ("video", "audio", "subtitle")
+
+
+def _source_frame_index(value: float) -> int:
+    """Keep whole frames from losing one frame to floating-point noise."""
+    nearest = round(value)
+    if math.isclose(value, nearest, rel_tol=0, abs_tol=1e-6):
+        return nearest
+    return int(value)
 
 
 def _validate_track_type(track_type: str) -> str:
@@ -267,7 +276,10 @@ class TimelineItem:
         position on the timeline. Useful for resolving sub-clips and
         cross-referencing against the source file.
         """
-        return (int(self._raw.GetSourceStartFrame()), int(self._raw.GetSourceEndFrame()))
+        return (
+            _source_frame_index(self._raw.GetSourceStartFrame()),
+            _source_frame_index(self._raw.GetSourceEndFrame()),
+        )
 
     @property
     def left_offset(self) -> int:

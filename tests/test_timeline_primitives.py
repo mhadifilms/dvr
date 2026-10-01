@@ -55,8 +55,8 @@ class _FakeClipRaw:
     def __init__(
         self,
         *,
-        source_start: int = 100,
-        source_end: int = 200,
+        source_start: int | float = 100,
+        source_end: int | float = 200,
         media_pool_item: object | None = object(),
         type_property: str = "Video",
     ) -> None:
@@ -65,10 +65,10 @@ class _FakeClipRaw:
         self._mpi = media_pool_item
         self._type = type_property
 
-    def GetSourceStartFrame(self) -> int:
+    def GetSourceStartFrame(self) -> int | float:
         return self._source_start
 
-    def GetSourceEndFrame(self) -> int:
+    def GetSourceEndFrame(self) -> int | float:
         return self._source_end
 
     def GetMediaPoolItem(self) -> object | None:
@@ -253,6 +253,23 @@ def test_create_compound_accepts_one_shot_iterator() -> None:
 def test_source_range() -> None:
     clip = _make_clip(_FakeClipRaw(source_start=24, source_end=240))
     assert clip.source_range == (24, 240)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        (62091.99999999999, 62116.99999999999, (62092, 62117)),
+        (13369.999999999998, 13884.0, (13370, 13884)),
+        (0.0, 1.0, (0, 1)),
+        (-24.000000000001, -0.000000000001, (-24, 0)),
+        (24.25, 240.75, (24, 240)),
+        (-24.25, -2.75, (-24, -2)),
+        (999999999.25, 1000000000.75, (999999999, 1000000000)),
+    ],
+)
+def test_source_range_float_precision(start: float, end: float, expected: tuple[int, int]) -> None:
+    clip = _make_clip(_FakeClipRaw(source_start=start, source_end=end))
+    assert clip.source_range == expected
 
 
 def test_is_compound_true_when_no_mpi_and_type_matches() -> None:

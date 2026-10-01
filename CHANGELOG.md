@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve whole source-frame indices when Resolve returns floating-point values
+  just below an integer. Genuine subframe values retain their existing integer
+  conversion behavior; this prevents false one-frame CPL mismatches.
+
 - Save the current project before timeline/project switches, including timeline
   creation, import, duplication, project creation and close. A failed save blocks
   the operation, including context-manager restoration. Raw-only wrappers without
