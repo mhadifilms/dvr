@@ -201,8 +201,8 @@ class TimelineItem:
         duration: int = 1,
         custom_data: str = "",
     ) -> None:
-        """Add a marker on this timeline item."""
-        target = frame if frame is not None else self.start
+        """Add a marker using Resolve's source-frame coordinate space."""
+        target = frame if frame is not None else self.source_range[0]
         ok = self._raw.AddMarker(target, color, name, note, duration, custom_data)
         if not ok:
             raise errors.ClipError(

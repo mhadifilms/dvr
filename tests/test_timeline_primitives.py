@@ -64,6 +64,7 @@ class _FakeClipRaw:
         self._source_end = source_end
         self._mpi = media_pool_item
         self._type = type_property
+        self.marker_calls: list[tuple] = []
 
     def GetSourceStartFrame(self) -> int:
         return self._source_start
@@ -78,6 +79,10 @@ class _FakeClipRaw:
         if key == "Type":
             return self._type
         return {"Type": self._type}
+
+    def AddMarker(self, *args) -> bool:
+        self.marker_calls.append(args)
+        return True
 
 
 def _make_timeline(raw: _FakeTimelineRaw) -> Timeline:
@@ -253,6 +258,24 @@ def test_create_compound_accepts_one_shot_iterator() -> None:
 def test_source_range() -> None:
     clip = _make_clip(_FakeClipRaw(source_start=24, source_end=240))
     assert clip.source_range == (24, 240)
+
+
+def test_item_marker_defaults_to_source_start_frame() -> None:
+    raw = _FakeClipRaw(source_start=24, source_end=240)
+    clip = _make_clip(raw)
+
+    clip.add_marker(color="Blue", name="keeper")
+
+    assert raw.marker_calls[0][0] == 24
+
+
+def test_item_marker_preserves_explicit_source_frame() -> None:
+    raw = _FakeClipRaw(source_start=24, source_end=240)
+    clip = _make_clip(raw)
+
+    clip.add_marker(frame=48, color="Blue", name="keeper")
+
+    assert raw.marker_calls[0][0] == 48
 
 
 def test_is_compound_true_when_no_mpi_and_type_matches() -> None:
